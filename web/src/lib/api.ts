@@ -1,4 +1,5 @@
-// Tipos espelham os DTOs do backend (Agenda.Api/Schedule).
+// Types mirror the back-end DTOs (Agenda.Api/Schedule and Agenda.Api/Groups).
+// The API sends no UI text: null titles/names are replaced by localized placeholders in the components.
 
 export type GoogleStatus = 'notConnected' | 'needsReconnect' | 'missingCalendarScope' | 'connected'
 
@@ -15,7 +16,7 @@ export type SourceKind = 'calendar' | 'taskList'
 export interface Source {
   id: string
   kind: SourceKind
-  name: string
+  name: string | null
   primary: boolean
   googleColor: string | null
 }
@@ -26,14 +27,15 @@ export interface AgendaItem {
   id: string
   sourceId: string
   kind: AgendaItemKind
+  /** null for "busy" items and untitled events/tasks. */
   title: string | null
-  /** Com hora: ISO em UTC. Dia inteiro: "yyyy-MM-dd". */
+  /** Timed: ISO in UTC. All-day: "yyyy-MM-dd". */
   start: string
-  /** Exclusivo. */
+  /** Exclusive. */
   end: string
   allDay: boolean
   location: string | null
-  /** Dono do item na agenda do grupo (define a cor). */
+  /** Owner of the item in the group agenda (defines the color). */
   memberId?: string | null
 }
 
@@ -43,7 +45,7 @@ export interface AgendaResponse {
 }
 
 export interface GroupAgendaResponse extends AgendaResponse {
-  /** Membros com a conexão Google expirada: a agenda deles não pôde ser lida. */
+  /** Members whose Google connection expired: their calendars couldn't be read. */
   unavailableMembers: string[]
 }
 
@@ -71,9 +73,9 @@ export interface Group {
 export interface SharingItem {
   sourceId: string
   kind: SourceKind
-  name: string
+  name: string | null
   primary: boolean
-  /** null = não compartilhada */
+  /** null = not shared */
   visibility: Visibility | null
 }
 
@@ -87,7 +89,7 @@ export type InviteStatus = 'valid' | 'expired' | 'used' | 'alreadyMember' | 'inA
 
 export interface InvitePreview {
   groupName: string
-  invitedBy: string
+  invitedBy: string | null
   expiresAt: string
   status: InviteStatus
 }
@@ -99,7 +101,7 @@ export interface Invite {
 
 export class ApiError extends Error {
   readonly status: number
-  /** Código estável vindo do backend (ex.: "google_reconnect_required"). */
+  /** Stable code from the back end (e.g. "google_reconnect_required"). */
   readonly code: string | undefined
 
   constructor(status: number, code?: string) {
@@ -110,7 +112,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  // Mesma origem: o cookie HttpOnly de sessão vai junto automaticamente. Nenhum token passa pelo JS.
+  // Same origin: the HttpOnly session cookie is sent automatically. No token ever touches JS.
   const res = await fetch(path, {
     ...init,
     headers: { Accept: 'application/json', ...(init?.headers as Record<string, string> | undefined) },
@@ -121,7 +123,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       code = ((await res.json()) as { code?: string }).code
     } catch {
-      // resposta sem corpo JSON
+      // response without a JSON body
     }
     throw new ApiError(res.status, code)
   }
@@ -140,8 +142,8 @@ export const api = {
   },
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
 
-  // ---- Grupo ----
-  /** 204 = sem grupo. O TanStack Query não aceita undefined como dado, por isso vira null. */
+  // ---- Group ----
+  /** 204 = no group. TanStack Query doesn't accept undefined as data, so it becomes null. */
   currentGroup: async () => (await request<Group | undefined>('/api/groups/current')) ?? null,
   createGroup: (name: string) => request<Group>('/api/groups', withJson('POST', { name })),
   leaveGroup: (groupId: string) => request<void>(`/api/groups/${groupId}/members/me`, { method: 'DELETE' }),
@@ -152,7 +154,7 @@ export const api = {
   groupAgenda: (groupId: string, from: string, to: string) =>
     request<GroupAgendaResponse>(`/api/groups/${groupId}/agenda?${new URLSearchParams({ from, to })}`),
 
-  // ---- Convite ----
+  // ---- Invite ----
   invitePreview: (token: string) => request<InvitePreview>(`/api/invites/${encodeURIComponent(token)}`),
   acceptInvite: (token: string) =>
     request<Group>(`/api/invites/${encodeURIComponent(token)}/accept`, { method: 'POST' }),
@@ -162,16 +164,16 @@ function withJson(method: string, body: unknown): RequestInit {
   return { method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }
 }
 
-/** Token do convite quando a URL é /convite/{token}. */
-export function inviteTokenFromPath(pathname = window.location.pathname) {
-  return /^\/convite\/([A-Za-z0-9_-]+)\/?$/.exec(pathname)?.[1] ?? null
-}
-
-/** O login é uma navegação (redirects para o Google e de volta), não um fetch. */
+/** Login is a navigation (redirects to Google and back), not a fetch. */
 export function loginUrl(consent = false) {
   const params = new URLSearchParams({ returnUrl: window.location.pathname })
   if (consent) params.set('consent', 'true')
   return `/auth/login?${params}`
+}
+
+/** Invite token when the URL is /invite/{token}. */
+export function inviteTokenFromPath(pathname = window.location.pathname) {
+  return /^\/invite\/([A-Za-z0-9_-]+)\/?$/.exec(pathname)?.[1] ?? null
 }
 
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401

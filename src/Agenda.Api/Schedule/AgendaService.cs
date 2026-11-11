@@ -11,9 +11,9 @@ using GoogleTask = Google.Apis.Tasks.v1.Data.Task;
 namespace Agenda.Api.Schedule;
 
 /// <summary>
-/// Lê eventos e tarefas direto do Google (sem salvar no banco) com um cache curto.
-/// Por que não sincronizar para o banco já? Com poucos usuários, ler sob demanda é mais simples,
-/// guarda menos dado pessoal e nunca fica desatualizado. Sincronização (syncToken + webhooks) é para escala.
+/// Reads events and tasks straight from Google (nothing is stored in the database) with a short cache.
+/// Why not sync into the database yet? With few users, reading on demand is simpler,
+/// stores less personal data and is never stale. Syncing (syncToken + webhooks) is for scale.
 /// </summary>
 public sealed class AgendaService(
     GoogleClientFactory clientFactory,
@@ -29,10 +29,10 @@ public sealed class AgendaService(
 
     private const string TaskFields = "nextPageToken,items(id,title,due,status,deleted,hidden)";
 
-    /// <summary>Uma fonte a ler: de quem é, qual agenda e com quanto detalhe ela foi compartilhada.</summary>
+    /// <summary>A source to read: whose it is, which calendar, and how much detail it was shared with.</summary>
     private sealed record SourceRequest(Guid OwnerId, SourceId Source, SourceVisibility Visibility);
 
-    /// <summary>Resposta crua do Google. É ISSO que vai para o cache, não o resultado filtrado.</summary>
+    /// <summary>Raw Google response. THIS is what goes into the cache, not the filtered result.</summary>
     private sealed record RawSource(IReadOnlyList<Event> Events, IReadOnlyList<GoogleTask> Tasks);
 
     private sealed record FetchResult(List<AgendaItem> Items, List<string> FailedSources, List<Guid> UnavailableOwners);
@@ -52,7 +52,7 @@ public sealed class AgendaService(
 
             foreach (var cal in page.Items ?? [])
             {
-                // freeBusyReader não permite listar eventos, só disponibilidade.
+                // freeBusyReader can't list events, only availability.
                 if (cal.AccessRole == "freeBusyReader") continue;
                 sources.Add(new SourceDto(
                     SourceId.Calendar(cal.Id).ToString(),
@@ -69,10 +69,10 @@ public sealed class AgendaService(
         {
             var lists = await clients.Tasks.Tasklists.List().ExecuteAsync(ct);
             sources.AddRange((lists.Items ?? []).Select(l => new SourceDto(
-                SourceId.TaskList(l.Id).ToString(), SourceKind.TaskList, l.Title ?? "Tarefas", false, null)));
+                SourceId.TaskList(l.Id).ToString(), SourceKind.TaskList, l.Title, false, null)));
         }
 
-        // Agenda principal primeiro, depois as demais por nome.
+        // Primary calendar first, then the rest by name.
         return sources
             .OrderByDescending(s => s.Primary)
             .ThenBy(s => s.Kind)
@@ -80,14 +80,14 @@ public sealed class AgendaService(
             .ToList();
     }
 
-    /// <summary>Agenda pessoal (quem não está em grupo): só as fontes do próprio usuário, sempre com detalhes.</summary>
+    /// <summary>Personal agenda (users without a group): only the user's own sources, always with details.</summary>
     public async Task<AgendaResponse> GetOwnAgendaAsync(
         Guid userId, DateTimeOffset from, DateTimeOffset to, IReadOnlyCollection<SourceId> sources, CancellationToken ct)
     {
         var requests = sources.Distinct().Select(s => new SourceRequest(userId, s, SourceVisibility.Details)).ToList();
         var result = await FetchAsync(userId, requests, from, to, ct);
 
-        // Na agenda pessoal não há o que mostrar sem a própria conexão: o front precisa pedir reconexão.
+        // In the personal agenda there's nothing to show without the user's own connection: the front end must ask to reconnect.
         if (result.UnavailableOwners.Contains(userId))
             throw new GoogleReconnectRequiredException();
 
@@ -95,8 +95,8 @@ public sealed class AgendaService(
     }
 
     /// <summary>
-    /// Agenda do grupo: tudo o que cada membro compartilhou, lido com o token DE CADA MEMBRO
-    /// (por isso pedimos acesso offline no login) e filtrado pelas regras de privacidade de cada um.
+    /// Group agenda: everything each member shared, read with EACH MEMBER'S token
+    /// (that's why we ask for offline access at login) and filtered by each one's privacy rules.
     /// </summary>
     public async Task<GroupAgendaResponse> GetGroupAgendaAsync(
         Guid groupId, Guid viewerId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
@@ -132,8 +132,8 @@ public sealed class AgendaService(
         var clients = new Dictionary<Guid, GoogleClients>();
         try
         {
-            // 1) Um cliente (um access token) por dono, em SEQUÊNCIA: o GoogleTokenService usa o DbContext,
-            //    que não é thread-safe. Quem estiver com a conexão expirada vira "indisponível", sem derrubar os outros.
+            // 1) One client (one access token) per owner, SEQUENTIALLY: GoogleTokenService uses the DbContext,
+            //    which isn't thread-safe. Owners with an expired connection become "unavailable" without breaking the others.
             foreach (var ownerId in toFetch.Select(r => r.OwnerId).Distinct())
             {
                 try
@@ -146,7 +146,7 @@ public sealed class AgendaService(
                 }
             }
 
-            // 2) As chamadas ao Google em PARALELO: o tempo total vira o da agenda mais lenta, não a soma.
+            // 2) Google calls in PARALLEL: total time is the slowest calendar, not the sum.
             var fetched = await Task.WhenAll(toFetch.Where(r => clients.ContainsKey(r.OwnerId)).Select(async request =>
             {
                 try
@@ -157,8 +157,8 @@ public sealed class AgendaService(
                 }
                 catch (GoogleApiException ex)
                 {
-                    // Uma agenda com problema (removida, sem permissão) não derruba a tela inteira.
-                    logger.LogWarning(ex, "Falha ao ler {Source} do usuário {UserId}: {Status}",
+                    // One broken calendar (removed, no permission) doesn't take down the whole screen.
+                    logger.LogWarning(ex, "Failed to read {Source} for user {UserId}: {Status}",
                         request.Source, request.OwnerId, ex.HttpStatusCode);
                     if (ex.HttpStatusCode == HttpStatusCode.Unauthorized)
                         tokens.Invalidate(request.OwnerId);
@@ -177,7 +177,7 @@ public sealed class AgendaService(
             foreach (var client in clients.Values) client.Dispose();
         }
 
-        // 3) Regras de privacidade aplicadas POR QUEM ESTÁ VENDO.
+        // 3) Privacy rules applied PER VIEWER.
         foreach (var (request, data) in loaded)
             result.Items.AddRange(Map(request, data, viewerId));
 
@@ -194,7 +194,7 @@ public sealed class AgendaService(
             if (item is not null) yield return WithOwner(item, request.OwnerId);
         }
 
-        // Tarefa não é bloco de tempo: numa lista compartilhada como "só ocupado" não há o que mostrar sem revelar o título.
+        // A task isn't a time block: in a list shared as "busy only" there's nothing to show without revealing the title.
         if (!viewerIsOwner && request.Visibility == SourceVisibility.BusyOnly) yield break;
 
         foreach (var task in data.Tasks)
@@ -205,8 +205,8 @@ public sealed class AgendaService(
     }
 
     /// <summary>
-    /// O id ganha o dono como prefixo: se os dois estão no mesmo evento (ex.: um convidou o outro),
-    /// ele vem nas duas agendas com o mesmo id do Google e o FullCalendar exige ids únicos.
+    /// The owner is prefixed to the id: if both people attend the same event (e.g. one invited the other),
+    /// it comes from both calendars with the same Google id, and FullCalendar requires unique ids.
     /// </summary>
     private static AgendaItem WithOwner(AgendaItem item, Guid ownerId) =>
         item with { Id = $"{ownerId:N}/{item.Id}", MemberId = ownerId };
@@ -227,10 +227,10 @@ public sealed class AgendaService(
             var request = clients.Calendar.Events.List(source.GoogleId);
             request.TimeMinDateTimeOffset = from;
             request.TimeMaxDateTimeOffset = to;
-            // Expande eventos recorrentes em ocorrências individuais (senão viria só a "regra" da recorrência).
+            // Expands recurring events into individual occurrences (otherwise only the recurrence "rule" comes back).
             request.SingleEvents = true;
             request.MaxResults = 2500;
-            // Pedir só os campos usados deixa a resposta menor e mais rápida.
+            // Asking only for the fields we use makes the response smaller and faster.
             request.Fields = EventFields;
             request.PageToken = pageToken;
 
@@ -250,8 +250,8 @@ public sealed class AgendaService(
         do
         {
             var request = clients.Tasks.Tasks.List(source.GoogleId);
-            // O "due" das tarefas é meia-noite UTC da data. Alargamos 1 dia para não perder tarefas
-            // na borda por causa do fuso (meia-noite em Brasília = 03:00 UTC).
+            // A task's "due" is midnight UTC of the date. We widen the range by 1 day so tasks at the edge
+            // aren't lost because of the time zone (midnight in Brasília = 03:00 UTC).
             request.DueMin = ToRfc3339(from.AddDays(-1));
             request.DueMax = ToRfc3339(to.AddDays(1));
             request.ShowCompleted = false;
@@ -271,7 +271,7 @@ public sealed class AgendaService(
     private static string ToRfc3339(DateTimeOffset value) =>
         value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
 
-    // O cache é por DONO + fonte + intervalo (dado cru), então serve a qualquer pessoa que esteja vendo.
+    // The cache is keyed by OWNER + source + range (raw data), so it serves any viewer.
     private static string CacheKey(SourceRequest request, DateTimeOffset from, DateTimeOffset to) =>
         $"agenda-raw:{request.OwnerId}:{request.Source}:{from.UtcTicks}:{to.UtcTicks}";
 }

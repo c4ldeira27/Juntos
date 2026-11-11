@@ -1,17 +1,22 @@
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api, loginUrl, type GoogleStatus, type Me } from '../lib/api'
 import { APP_NAME } from '../lib/config'
 import { GoogleG, Logo } from './icons'
+import { LanguageSwitch } from './ui'
 
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <main className="relative grid min-h-full place-items-center overflow-hidden px-4 py-10">
-      {/* Manchas de cor no fundo: as duas cores do logo, uma para cada pessoa. */}
+      {/* Color blobs in the background: the two logo colors, one per person. */}
       <div aria-hidden className="pointer-events-none absolute -top-40 -left-32 size-[28rem] rounded-full bg-[#7c6cff]/20 blur-3xl" />
       <div aria-hidden className="pointer-events-none absolute -right-32 -bottom-40 size-[28rem] rounded-full bg-[#ff7a6b]/20 blur-3xl" />
       <div className="relative w-full max-w-sm rounded-3xl border border-line bg-surface/80 p-8 text-center shadow-xl shadow-black/5 backdrop-blur">
         <Logo size={44} className="mx-auto" />
         {children}
+      </div>
+      <div className="absolute bottom-5">
+        <LanguageSwitch />
       </div>
     </main>
   )
@@ -30,37 +35,22 @@ function GoogleButton({ href, children }: { href: string; children: ReactNode })
 }
 
 export function LoginScreen({ invited = false }: { invited?: boolean }) {
+  const { t } = useTranslation()
   return (
     <Shell>
-      <h1 className="mt-5 text-2xl font-semibold tracking-tight">{invited ? 'Você recebeu um convite' : APP_NAME}</h1>
+      <h1 className="mt-5 text-2xl font-semibold tracking-tight">{invited ? t('login.invitedTitle') : APP_NAME}</h1>
       <p className="mt-2 text-sm text-pretty text-muted">
-        {invited
-          ? `Entre com sua conta Google para ver o convite e juntar sua agenda à de quem te chamou no ${APP_NAME}.`
-          : 'Suas agendas do Google, lado a lado. Cada um no seu calendário, os dois na mesma tela.'}
+        {invited ? t('login.invitedBody', { app: APP_NAME }) : t('login.tagline')}
       </p>
-      <GoogleButton href={loginUrl()}>Entrar com Google</GoogleButton>
-      <p className="mt-6 text-xs text-muted">Somente leitura. Nada é alterado na sua agenda.</p>
+      <GoogleButton href={loginUrl()}>{t('login.button')}</GoogleButton>
+      <p className="mt-6 text-xs text-muted">{t('login.readOnly')}</p>
     </Shell>
   )
 }
 
-const connectCopy: Record<Exclude<GoogleStatus, 'connected'>, { title: string; body: string }> = {
-  notConnected: {
-    title: 'Falta conectar sua agenda',
-    body: 'Para mostrar seus compromissos, precisamos de permissão de leitura do Google Agenda.',
-  },
-  needsReconnect: {
-    title: 'Sua conexão com o Google expirou',
-    body: 'O acesso foi revogado ou expirou. Autorize de novo para continuar vendo sua agenda.',
-  },
-  missingCalendarScope: {
-    title: 'A permissão da agenda ficou desmarcada',
-    body: 'Na tela do Google, deixe marcada a opção de ver seus calendários. Sem ela não há o que mostrar.',
-  },
-}
-
 export function ConnectScreen({ me }: { me: Me }) {
-  const copy = connectCopy[me.google.status as Exclude<GoogleStatus, 'connected'>]
+  const { t } = useTranslation()
+  const status = me.google.status as Exclude<GoogleStatus, 'connected'>
 
   async function logout() {
     await api.logout()
@@ -69,11 +59,11 @@ export function ConnectScreen({ me }: { me: Me }) {
 
   return (
     <Shell>
-      <h1 className="mt-5 text-xl font-semibold tracking-tight">{copy.title}</h1>
-      <p className="mt-2 text-sm text-pretty text-muted">{copy.body}</p>
-      <GoogleButton href={loginUrl(true)}>Conectar Google Agenda</GoogleButton>
+      <h1 className="mt-5 text-xl font-semibold tracking-tight">{t(`connect.${status}.title`)}</h1>
+      <p className="mt-2 text-sm text-pretty text-muted">{t(`connect.${status}.body`)}</p>
+      <GoogleButton href={loginUrl(true)}>{t('connect.button')}</GoogleButton>
       <button onClick={logout} className="mt-5 text-xs text-muted underline-offset-4 hover:underline">
-        Entrar com outra conta ({me.email})
+        {t('connect.switchAccount', { email: me.email })}
       </button>
     </Shell>
   )

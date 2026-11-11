@@ -1,22 +1,23 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api, needsReconnect, type AgendaItem, type Group, type Me } from '../lib/api'
 import { colorAt } from '../lib/config'
 import { useSelectedSources } from '../lib/hooks'
 import { CalendarView, type DateRange } from './CalendarView'
 import { CreateGroupDialog, InviteDialog, SharingDialog } from './GroupDialogs'
-import { GroupPanel, PersonalPanel } from './Panels'
+import { GroupPanel, LeaveGroupButton, PersonalPanel } from './Panels'
 import { Sidebar } from './Sidebar'
 
 const REFRESH_INTERVAL = 5 * 60_000
 
-/** Sem grupo: agenda pessoal (M1). Com grupo: agenda unificada, uma cor por pessoa. */
+/** No group: personal agenda (M1). With a group: unified agenda, one color per person. */
 export function AgendaScreen({ me, group }: { me: Me; group: Group | null }) {
-  // "key" força remontar ao trocar de grupo: estados como filtros e diálogos não vazam de um grupo para outro.
+  // "key" forces a remount when the group changes: state such as filters and dialogs doesn't leak between groups.
   return group ? <GroupAgenda key={group.id} me={me} group={group} /> : <PersonalAgenda me={me} />
 }
 
-// ===================== Pessoal =====================
+// ===================== Personal =====================
 
 function PersonalAgenda({ me }: { me: Me }) {
   const [range, setRange] = useState<DateRange | null>(null)
@@ -29,7 +30,7 @@ function PersonalAgenda({ me }: { me: Me }) {
     queryKey: ['agenda', range?.from, range?.to, selected],
     queryFn: () => api.agenda(range!.from, range!.to, selected),
     enabled: range !== null && selected.length > 0,
-    // Ao trocar de semana, mantém os eventos antigos na tela até os novos chegarem (sem "piscar").
+    // When switching weeks, keeps the old events on screen until the new ones arrive (no flicker).
     placeholderData: keepPreviousData,
     refetchInterval: REFRESH_INTERVAL,
   })
@@ -70,15 +71,16 @@ function PersonalAgenda({ me }: { me: Me }) {
   )
 }
 
-// ===================== Grupo =====================
+// ===================== Group =====================
 
 type GroupDialog = 'invite' | 'sharing' | null
 
 function GroupAgenda({ me, group }: { me: Me; group: Group }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [range, setRange] = useState<DateRange | null>(null)
   const [hidden, setHidden] = useState<Set<string>>(() => new Set())
-  // Quem acabou de entrar (ou criar) ainda não escolheu o que compartilhar: abre direto essa escolha.
+  // Someone who just joined (or created) hasn't chosen what to share yet: open that choice right away.
   const [dialog, setDialog] = useState<GroupDialog>(() =>
     group.members.find((m) => m.isMe)?.sharingConfigured ? null : 'sharing',
   )
@@ -112,10 +114,7 @@ function GroupAgenda({ me, group }: { me: Me; group: Group }) {
   }
 
   async function leave() {
-    const others = group.members.length > 1
-    const message = others
-      ? 'Sair do grupo? Suas agendas deixam de aparecer para os outros membros.'
-      : 'Sair do grupo? Como você é a única pessoa, o grupo será apagado.'
+    const message = group.members.length > 1 ? t('group.confirmLeave') : t('group.confirmLeaveLast')
     if (!window.confirm(message)) return
     await api.leaveGroup(group.id)
     queryClient.removeQueries({ queryKey: ['group-agenda'] })
@@ -136,9 +135,9 @@ function GroupAgenda({ me, group }: { me: Me; group: Group }) {
             onToggleMember={toggleMember}
             onInvite={() => setDialog('invite')}
             onSharing={() => setDialog('sharing')}
-            onLeave={leave}
           />
         }
+        footer={<LeaveGroupButton onLeave={leave} />}
         items={items}
         colorOf={colorOf}
         fetching={agendaQuery.isFetching}
@@ -152,9 +151,9 @@ function GroupAgenda({ me, group }: { me: Me; group: Group }) {
   )
 }
 
-// ===================== Comum =====================
+// ===================== Shared =====================
 
-/** Se o Google revogou o acesso no meio do uso, recarrega o /me: o App troca para a tela de reconexão. */
+/** If Google revoked access mid-session, reload /me: App switches to the reconnect screen. */
 function useReconnectOn(...errors: unknown[]) {
   const queryClient = useQueryClient()
   const shouldReconnect = errors.some(needsReconnect)
@@ -166,6 +165,7 @@ function useReconnectOn(...errors: unknown[]) {
 interface AgendaLayoutProps {
   me: Me
   panel: ReactNode
+  footer?: ReactNode
   items: AgendaItem[]
   colorOf: (item: AgendaItem) => string
   fetching: boolean
@@ -174,7 +174,8 @@ interface AgendaLayoutProps {
   onRangeChange: (range: DateRange) => void
 }
 
-function AgendaLayout({ me, panel, items, colorOf, fetching, failed, onRetry, onRangeChange }: AgendaLayoutProps) {
+function AgendaLayout({ me, panel, footer, items, colorOf, fetching, failed, onRetry, onRangeChange }: AgendaLayoutProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -185,7 +186,7 @@ function AgendaLayout({ me, panel, items, colorOf, fetching, failed, onRetry, on
   }
 
   const sidebar = (onClose?: () => void) => (
-    <Sidebar me={me} onLogout={logout} onClose={onClose}>
+    <Sidebar me={me} onLogout={logout} onClose={onClose} footer={footer}>
       {panel}
     </Sidebar>
   )
@@ -194,7 +195,7 @@ function AgendaLayout({ me, panel, items, colorOf, fetching, failed, onRetry, on
     <div className="flex h-full">
       <div className="hidden md:block">{sidebar()}</div>
 
-      {/* Gaveta no celular */}
+      {/* Drawer on mobile */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
           <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setSidebarOpen(false)} />
@@ -205,9 +206,9 @@ function AgendaLayout({ me, panel, items, colorOf, fetching, failed, onRetry, on
       <main className="flex min-w-0 flex-1 flex-col p-2 md:py-3 md:pr-3 md:pl-0">
         {failed && (
           <div className="mb-2 flex items-center justify-between rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm">
-            <span>Não foi possível carregar a agenda.</span>
+            <span>{t('calendar.loadFailed')}</span>
             <button onClick={onRetry} className="font-medium text-accent hover:underline">
-              Tentar de novo
+              {t('common.retry')}
             </button>
           </div>
         )}

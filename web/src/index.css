@@ -1,8 +1,8 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/inter';
 
-/* Tokens de design: as utilities do Tailwind (bg-surface, text-muted...) apontam para as variáveis,
-   e as variáveis mudam no modo escuro. Assim nenhum componente precisa saber de dark mode. */
+/* Design tokens: Tailwind utilities (bg-surface, text-muted...) point to the variables,
+   and the variables change in dark mode. That way no component needs to know about dark mode. */
 @theme inline {
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
   --color-bg: var(--bg);
@@ -56,7 +56,7 @@ body {
 }
 
 /* ============ FullCalendar ============
-   Prefixo .cal para ganhar em especificidade do CSS que o FullCalendar injeta. */
+   .cal prefix to win specificity over the CSS FullCalendar injects. */
 
 .cal .fc {
   --fc-border-color: var(--line);
@@ -72,20 +72,20 @@ body {
 
 .cal .fc a { color: inherit; text-decoration: none; }
 
-/* O FullCalendar força overflow:scroll no cabeçalho para alinhar as colunas com o corpo;
-   no Windows isso desenha setas de scrollbar. Uma scrollbar fina e discreta resolve. */
+/* FullCalendar forces overflow:scroll on the header to align its columns with the body;
+   on Windows that draws scrollbar arrows. A thin, subtle scrollbar fixes it. */
 .cal .fc .fc-scroller {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--muted) 35%, transparent) transparent;
 }
-/* Cabeçalho e "Dia todo" nunca rolam: a scrollbar ali só existe para reservar espaço. Fica invisível. */
+/* The header and "All day" rows never scroll: the scrollbar there only reserves space. Make it invisible. */
 .cal .fc .fc-scrollgrid-section:not(.fc-scrollgrid-section-liquid) .fc-scroller {
   scrollbar-color: transparent transparent;
 }
 .cal .fc .fc-scrollgrid { border: none; }
 .cal .fc td.fc-timegrid-axis, .cal .fc .fc-scrollgrid-section > td { border-left: none; }
 
-/* Grade de horas mais "respirada" e sem a linha da meia hora, como no Google. */
+/* Roomier hour grid without the half-hour line, like Google. */
 .cal .fc .fc-timegrid-slot { height: 1.6rem; }
 .cal .fc .fc-timegrid-slot-minor { border-top-style: none; }
 .cal .fc .fc-timegrid-slot-label { vertical-align: top; border: none; }
@@ -100,7 +100,7 @@ body {
 .cal .fc .fc-timegrid-axis-cushion { font-size: 11px; color: var(--muted); }
 .cal .fc .fc-timegrid-now-indicator-line { border-width: 2px 0 0; }
 
-/* Cabeçalho dos dias */
+/* Day headers */
 .cal .fc .fc-col-header-cell { border-left-color: transparent; border-right-color: transparent; }
 .cal .fc .fc-col-header-cell-cushion { padding: 8px 4px; color: var(--muted); font-weight: 500; }
 .dh { display: flex; flex-direction: column; align-items: center; gap: 2px; }
@@ -117,7 +117,7 @@ body {
 }
 .dh-num.today { background: var(--accent); color: #fff; }
 
-/* Mês */
+/* Month */
 .cal .fc .fc-daygrid-day-number { padding: 6px 8px; font-size: 12px; color: var(--muted); }
 .cal .fc .fc-day-today .fc-daygrid-day-number {
   display: grid;
@@ -132,8 +132,8 @@ body {
 }
 .cal .fc .fc-daygrid-more-link { font-size: 11px; color: var(--muted); }
 
-/* ============ Eventos ============
-   Fundo tingido com a cor da agenda + barra à esquerda: legível e mais leve que o bloco chapado do Google. */
+/* ============ Events ============
+   Background tinted with the item color + left bar: readable and lighter than Google’s solid blocks. */
 .cal .fc .fc-event { background: transparent; border: none; box-shadow: none; }
 .cal .fc .fc-event-main { padding: 0; color: inherit; }
 .cal .fc .fc-daygrid-block-event { margin-top: 2px; }
@@ -154,13 +154,13 @@ body {
 .ev-title { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .fc-timegrid-event .ev-title { white-space: normal; }
 
-/* Eventos curtos (< ~45 min): título e horário na mesma linha, senão o texto é cortado. */
+/* Short events (< ~45 min): title and time on the same line, otherwise the text gets cut. */
 .fc-timegrid-event-short .ev { display: flex; align-items: baseline; gap: 6px; padding-top: 1px; padding-bottom: 1px; }
 .fc-timegrid-event-short .ev-title { flex: none; white-space: nowrap; }
 .fc-timegrid-event-short .ev-meta + .ev-meta { display: none; }
 .ev-meta { overflow: hidden; font-size: 11px; color: color-mix(in srgb, var(--ink) 62%, transparent); text-overflow: ellipsis; white-space: nowrap; }
 
-/* Ocupado: listras diagonais, sem título. */
+/* Busy: diagonal stripes, no title. */
 .ev-busy {
   background: repeating-linear-gradient(
     135deg,
@@ -170,7 +170,7 @@ body {
 }
 .ev-busy .ev-title { font-weight: 500; color: var(--muted); }
 
-/* Tarefa: contorno + "bolinha" de checkbox. */
+/* Task: outline + checkbox "dot". */
 .ev-task {
   display: flex;
   align-items: center;
@@ -180,7 +180,7 @@ body {
 }
 .ev-check { flex: none; width: 11px; height: 11px; border: 1.5px solid var(--ev); border-radius: 999px; }
 
-/* Lista: o FullCalendar já desenha a bolinha colorida; nosso conteúdo fica sem caixa. */
+/* List: FullCalendar already draws the colored dot; our content has no box. */
 .cal .fc .fc-list { border: none; }
 .cal .fc .fc-list .ev { height: auto; padding: 0; border: none; background: none; }
 .cal .fc .fc-list .ev-title { font-size: 13px; font-weight: 500; white-space: normal; }

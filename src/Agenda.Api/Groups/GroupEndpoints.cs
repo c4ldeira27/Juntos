@@ -25,9 +25,9 @@ public static class GroupEndpoints
         invites.MapPost("/{token}/accept", AcceptInviteAsync);
     }
 
-    // ---------------- Grupo ----------------
+    // ---------------- Group ----------------
 
-    /// <summary>204 quando o usuário ainda não está em nenhum grupo (o front mostra a agenda pessoal).</summary>
+    /// <summary>204 when the user isn't in any group yet (the front end shows the personal agenda).</summary>
     private static async Task<IResult> GetCurrentAsync(ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
         if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
@@ -45,11 +45,11 @@ public static class GroupEndpoints
         if (string.IsNullOrEmpty(name) || name.Length > GroupRules.MaxNameLength)
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["name"] = [$"Informe um nome de 1 a {GroupRules.MaxNameLength} caracteres."],
+                ["name"] = [$"Name must be 1 to {GroupRules.MaxNameLength} characters."],
             });
 
         if (await db.GroupMembers.AnyAsync(m => m.UserId == userId, ct))
-            return Problem(StatusCodes.Status409Conflict, "already_in_group", "Você já participa de um grupo.");
+            return Problem(StatusCodes.Status409Conflict, "already_in_group", "You are already in a group.");
 
         var now = time.GetUtcNow();
         var group = new Group { Id = Guid.CreateVersion7(), Name = name, CreatedByUserId = userId, CreatedAt = now };
@@ -68,8 +68,8 @@ public static class GroupEndpoints
     }
 
     /// <summary>
-    /// Sair do grupo. O banco apaga em cascata o que a pessoa compartilhava.
-    /// Se era a dona, a pessoa mais antiga assume; se era a última, o grupo deixa de existir.
+    /// Leave the group. The database cascades the delete of everything the person shared.
+    /// If they were the owner, the oldest member takes over; if they were the last one, the group is deleted.
     /// </summary>
     private static async Task<IResult> LeaveAsync(Guid groupId, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
@@ -78,7 +78,7 @@ public static class GroupEndpoints
         var member = await db.GroupMembers.SingleOrDefaultAsync(m => m.GroupId == groupId && m.UserId == userId, ct);
         if (member is null) return Results.NotFound();
 
-        // Transação: as três operações acontecem juntas ou nenhuma acontece.
+        // Transaction: the three operations happen together or not at all.
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
         db.GroupMembers.Remove(member);
@@ -99,7 +99,7 @@ public static class GroupEndpoints
         return Results.NoContent();
     }
 
-    // ---------------- Convites ----------------
+    // ---------------- Invites ----------------
 
     private static async Task<IResult> CreateInviteAsync(
         Guid groupId, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, HttpContext http, CancellationToken ct)
@@ -108,7 +108,7 @@ public static class GroupEndpoints
         if (!await IsMemberAsync(db, groupId, userId, ct)) return Results.NotFound();
 
         if (await db.GroupMembers.CountAsync(m => m.GroupId == groupId, ct) >= GroupRules.MaxMembers)
-            return Problem(StatusCodes.Status409Conflict, "group_full", $"O grupo já tem {GroupRules.MaxMembers} pessoas.");
+            return Problem(StatusCodes.Status409Conflict, "group_full", $"The group already has {GroupRules.MaxMembers} people.");
 
         var now = time.GetUtcNow();
         var (token, hash) = InviteTokens.Create();
@@ -124,8 +124,8 @@ public static class GroupEndpoints
         db.GroupInvites.Add(invite);
         await db.SaveChangesAsync(ct);
 
-        // O token em texto puro só existe aqui, na resposta. No banco fica apenas o hash.
-        var url = $"{http.Request.Scheme}://{http.Request.Host}/convite/{token}";
+        // The plain-text token only exists here, in the response. The database keeps only the hash.
+        var url = $"{http.Request.Scheme}://{http.Request.Host}/invite/{token}";
         return Results.Ok(new InviteDto(url, invite.ExpiresAt));
     }
 
@@ -135,7 +135,7 @@ public static class GroupEndpoints
         if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
 
         var invite = await FindInviteAsync(db, token, userId, time.GetUtcNow(), ct);
-        if (invite is null) return Problem(StatusCodes.Status404NotFound, "invite_not_found", "Convite não encontrado.");
+        if (invite is null) return Problem(StatusCodes.Status404NotFound, "invite_not_found", "Invite not found.");
 
         return Results.Ok(new InvitePreviewDto(invite.GroupName, invite.InvitedBy, invite.ExpiresAt, invite.Status));
     }
@@ -151,28 +151,28 @@ public static class GroupEndpoints
         switch (invite?.Status)
         {
             case null:
-                return Problem(StatusCodes.Status404NotFound, "invite_not_found", "Convite não encontrado.");
-            case "alreadyMember": // idempotente: clicar duas vezes no link não é erro
+                return Problem(StatusCodes.Status404NotFound, "invite_not_found", "Invite not found.");
+            case "alreadyMember": // idempotent: clicking the link twice isn't an error
                 return Results.Ok(await LoadGroupAsync(db, invite.GroupId, userId, ct));
             case "expired" or "used":
-                return Problem(StatusCodes.Status410Gone, "invite_invalid", "Este convite expirou ou já foi usado.");
+                return Problem(StatusCodes.Status410Gone, "invite_invalid", "This invite has expired or was already used.");
             case "inAnotherGroup":
-                return Problem(StatusCodes.Status409Conflict, "already_in_group", "Você já participa de outro grupo.");
+                return Problem(StatusCodes.Status409Conflict, "already_in_group", "You are already in another group.");
             case "full":
-                return Problem(StatusCodes.Status409Conflict, "group_full", "Este grupo já está cheio.");
+                return Problem(StatusCodes.Status409Conflict, "group_full", "This group is full.");
         }
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-        // "Reserva" o convite de forma atômica: o UPDATE só afeta a linha se ainda não foi usada.
-        // Se duas pessoas aceitarem ao mesmo tempo, só uma recebe 1 linha afetada.
+        // "Claims" the invite atomically: the UPDATE only affects the row if it hasn't been used yet.
+        // If two people accept at the same time, only one gets 1 affected row.
         var claimed = await db.GroupInvites
             .Where(i => i.Id == invite.InviteId && i.UsedAt == null)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(i => i.UsedAt, now)
                 .SetProperty(i => i.UsedByUserId, userId), ct);
         if (claimed == 0)
-            return Problem(StatusCodes.Status410Gone, "invite_invalid", "Este convite expirou ou já foi usado.");
+            return Problem(StatusCodes.Status410Gone, "invite_invalid", "This invite has expired or was already used.");
 
         var usedColors = await db.GroupMembers.Where(m => m.GroupId == invite.GroupId).Select(m => m.Color).ToListAsync(ct);
         db.GroupMembers.Add(new GroupMember
@@ -189,7 +189,7 @@ public static class GroupEndpoints
         return Results.Ok(await LoadGroupAsync(db, invite.GroupId, userId, ct));
     }
 
-    private sealed record InviteLookup(Guid InviteId, Guid GroupId, string GroupName, string InvitedBy, DateTimeOffset ExpiresAt, string Status);
+    private sealed record InviteLookup(Guid InviteId, Guid GroupId, string GroupName, string? InvitedBy, DateTimeOffset ExpiresAt, string Status);
 
     private static async Task<InviteLookup?> FindInviteAsync(AppDbContext db, string token, Guid userId, DateTimeOffset now, CancellationToken ct)
     {
@@ -212,7 +212,7 @@ public static class GroupEndpoints
 
         var inAnotherGroup = !invite.IsMember && await db.GroupMembers.AnyAsync(m => m.UserId == userId, ct);
 
-        // A ordem importa: "já é membro" vence "já foi usado" (o próprio convidado reabrindo o link).
+        // Order matters: "already a member" wins over "already used" (the invitee reopening the link).
         var status =
             invite.IsMember ? "alreadyMember" :
             invite.UsedAt is not null ? "used" :
@@ -221,12 +221,12 @@ public static class GroupEndpoints
             invite.MemberCount >= GroupRules.MaxMembers ? "full" :
             "valid";
 
-        return new InviteLookup(invite.Id, invite.GroupId, invite.GroupName, invite.InvitedBy ?? "Alguém", invite.ExpiresAt, status);
+        return new InviteLookup(invite.Id, invite.GroupId, invite.GroupName, invite.InvitedBy, invite.ExpiresAt, status);
     }
 
-    // ---------------- Compartilhamento ----------------
+    // ---------------- Sharing ----------------
 
-    /// <summary>Minhas agendas do Google + como cada uma está compartilhada neste grupo.</summary>
+    /// <summary>My Google calendars + how each one is shared in this group.</summary>
     private static async Task<IResult> GetSharingAsync(
         Guid groupId, ClaimsPrincipal principal, AppDbContext db, AgendaService agenda, CancellationToken ct)
     {
@@ -246,7 +246,7 @@ public static class GroupEndpoints
                 shared.TryGetValue(s.Id, out var share) ? share.Visibility : null))
             .ToList();
 
-        // Compartilhada mas que sumiu do Google (ex.: deixou de seguir a agenda): mostra para a pessoa poder desmarcar.
+        // Shared but gone from Google (e.g. unsubscribed from the calendar): listed so the person can uncheck it.
         var known = sources.Select(s => s.Id).ToHashSet();
         items.AddRange(shares
             .Where(s => !known.Contains(new SourceId(s.Kind, s.GoogleId).ToString()))
@@ -267,7 +267,7 @@ public static class GroupEndpoints
         if (choices.Count > GroupRules.MaxSharedSources)
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["sources"] = [$"No máximo {GroupRules.MaxSharedSources} agendas."],
+                ["sources"] = [$"At most {GroupRules.MaxSharedSources} calendars."],
             });
 
         var rows = new List<SharedSource>();
@@ -276,7 +276,7 @@ public static class GroupEndpoints
             if (!SourceId.TryParse(choice.SourceId, out var sourceId) || sourceId.GoogleId.Length > 255)
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["sources"] = [$"Fonte inválida: '{choice.SourceId}'."],
+                    ["sources"] = [$"Invalid source: '{choice.SourceId}'."],
                 });
 
             var name = string.IsNullOrWhiteSpace(choice.Name) ? sourceId.GoogleId : choice.Name.Trim();
@@ -292,7 +292,7 @@ public static class GroupEndpoints
             });
         }
 
-        // Substituir tudo é mais simples (e menos sujeito a bug) do que calcular o que mudou.
+        // Replacing everything is simpler (and less bug-prone) than computing what changed.
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.SharedSources.Where(s => s.GroupId == groupId && s.UserId == userId).ExecuteDeleteAsync(ct);
         db.SharedSources.AddRange(rows);
@@ -303,7 +303,7 @@ public static class GroupEndpoints
         return Results.NoContent();
     }
 
-    // ---------------- Agenda do grupo ----------------
+    // ---------------- Group agenda ----------------
 
     private static async Task<IResult> GetAgendaAsync(
         Guid groupId, DateTimeOffset from, DateTimeOffset to,
@@ -314,7 +314,7 @@ public static class GroupEndpoints
         var errors = AgendaRange.Validate(from, to);
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-        // 404 (e não 403) para quem não é membro: não confirma nem que o grupo existe.
+        // 404 (not 403) for non-members: doesn't even confirm the group exists.
         if (!await IsMemberAsync(db, groupId, userId, ct)) return Results.NotFound();
 
         return Results.Ok(await agenda.GetGroupAgendaAsync(groupId, userId, from, to, ct));

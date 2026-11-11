@@ -19,9 +19,9 @@ using Testcontainers.MsSql;
 namespace Agenda.Api.Tests.Integration;
 
 /// <summary>
-/// Sobe a API de verdade em memória (WebApplicationFactory) contra um SQL Server descartável (Testcontainers).
-/// Assim testamos o que mock nenhum pegaria: migrations, índices únicos, cascades e transações.
-/// O login do Google é trocado por um esquema de teste que lê o usuário do header X-Test-User.
+/// Runs the real API in memory (WebApplicationFactory) against a throwaway SQL Server (Testcontainers).
+/// This tests what no mock would catch: migrations, unique indexes, cascades and transactions.
+/// Google login is replaced by a test scheme that reads the user from the X-Test-User header.
 /// </summary>
 public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
@@ -43,7 +43,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        // Development: o Program aplica as migrations ao subir, criando o schema no container.
+        // Development: Program applies the migrations on startup, creating the schema in the container.
         builder.UseEnvironment("Development");
         builder.UseSetting("Google:ClientId", "test-client-id");
         builder.UseSetting("Google:ClientSecret", "test-client-secret");
@@ -62,7 +62,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { }));
     }
 
-    /// <summary>Cria um usuário no banco e devolve um HttpClient "logado" como ele.</summary>
+    /// <summary>Creates a user in the database and returns an HttpClient "logged in" as them.</summary>
     public async Task<(Guid Id, HttpClient Client)> CreateUserAsync(string name)
     {
         var id = Guid.CreateVersion7();
@@ -73,7 +73,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             {
                 Id = id,
                 GoogleSubject = $"sub-{id:N}",
-                Email = $"{name.ToLowerInvariant()}-{id:N}@exemplo.com",
+                Email = $"{name.ToLowerInvariant()}-{id:N}@example.com",
                 Name = name,
                 CreatedAt = DateTimeOffset.UtcNow,
                 LastLoginAt = DateTimeOffset.UtcNow,

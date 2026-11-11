@@ -11,10 +11,10 @@ public static class GroupRules
     public const int MaxSharedSources = 30;
     public static readonly TimeSpan InviteLifetime = TimeSpan.FromHours(48);
 
-    /// <summary>Uma cor por pessoa, na ordem em que entram no grupo (você violeta, ela coral...).</summary>
+    /// <summary>One color per person, in the order they join the group (first violet, then coral...).</summary>
     public static readonly string[] MemberColors = ["#7c6cff", "#ff7a6b", "#14b8a6", "#f5a524", "#38bdf8", "#ec4899"];
 
-    /// <summary>Primeira cor da paleta que ninguém do grupo está usando.</summary>
+    /// <summary>First palette color nobody in the group is using.</summary>
     public static string NextColor(IEnumerable<string> usedColors)
     {
         var used = usedColors.ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -25,8 +25,8 @@ public static class GroupRules
 public static class InviteTokens
 {
     /// <summary>
-    /// 32 bytes aleatórios (256 bits) de um gerador criptográfico: impossível adivinhar por força bruta.
-    /// Base64Url porque o token vai na URL (o Base64 comum tem "+" e "/").
+    /// 32 random bytes (256 bits) from a cryptographic generator: impossible to guess by brute force.
+    /// Base64Url because the token goes in the URL (regular Base64 has "+" and "/").
     /// </summary>
     public static (string Token, string Hash) Create()
     {
@@ -35,8 +35,8 @@ public static class InviteTokens
     }
 
     /// <summary>
-    /// SHA-256 sem salt é suficiente aqui: o salt existe para proteger senhas fracas, escolhidas por humanos.
-    /// Um token de 256 bits aleatórios não tem dicionário para atacar.
+    /// Unsalted SHA-256 is enough here: salt exists to protect weak, human-chosen passwords.
+    /// A 256-bit random token has no dictionary to attack.
     /// </summary>
     public static string Hash(string token) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));

@@ -27,7 +27,7 @@ public static class MeEndpoints
                 .Include(u => u.GoogleConnection)
                 .SingleOrDefaultAsync(u => u.Id == userId, ct);
 
-            // Cookie válido de um usuário que não existe mais (ex.: banco recriado em dev).
+            // A valid cookie for a user that no longer exists (e.g. database recreated in dev).
             if (user is null) return Results.Unauthorized();
 
             return Results.Ok(new MeResponse(user.Id, user.Name, user.Email, user.AvatarUrl, ToStatus(user.GoogleConnection)));
@@ -43,7 +43,7 @@ public static class MeEndpoints
             return Results.Ok(await agenda.GetSourcesAsync(userId, canReadTasks, ct));
         });
 
-        // Ex.: /api/me/agenda?from=2026-11-09T03:00:00Z&to=2026-11-16T03:00:00Z&source=cal:primary&source=tasks:abc
+        // e.g. /api/me/agenda?from=2026-11-09T03:00:00Z&to=2026-11-16T03:00:00Z&source=cal:primary&source=tasks:abc
         group.MapGet("/agenda", async (
             ClaimsPrincipal principal,
             DateTimeOffset from,
@@ -55,13 +55,13 @@ public static class MeEndpoints
             if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
 
             var errors = AgendaRange.Validate(from, to);
-            if (source is { Length: > MaxSources }) errors["source"] = [$"No máximo {MaxSources} fontes por consulta."];
+            if (source is { Length: > MaxSources }) errors["source"] = [$"At most {MaxSources} sources per request."];
 
             var parsed = new List<SourceId>();
             foreach (var raw in source ?? [])
             {
                 if (SourceId.TryParse(raw, out var id)) parsed.Add(id);
-                else errors["source"] = [$"Fonte inválida: '{raw}'. Use 'cal:{{id}}' ou 'tasks:{{id}}'."];
+                else errors["source"] = [$"Invalid source: '{raw}'. Use 'cal:{{id}}' or 'tasks:{{id}}'."];
             }
 
             if (errors.Count > 0) return Results.ValidationProblem(errors);

@@ -7,11 +7,11 @@ using Microsoft.Extensions.Caching.Memory;
 namespace Agenda.Api.GoogleApi;
 
 public sealed class GoogleReconnectRequiredException()
-    : Exception("A conexão com o Google expirou ou foi revogada. O usuário precisa autorizar novamente.");
+    : Exception("The Google connection expired or was revoked. The user must authorize again.");
 
 /// <summary>
-/// Troca o refresh token (guardado no banco) por um access token (dura ~1h, fica em cache).
-/// Fazemos a chamada HTTP na mão em vez de usar o fluxo do SDK para ficar explícito o que acontece.
+/// Exchanges the refresh token (stored in the database) for an access token (lasts ~1h, cached).
+/// The HTTP call is made by hand instead of using the SDK flow to keep it explicit.
 /// </summary>
 public sealed class GoogleTokenService(
     HttpClient http,
@@ -49,11 +49,11 @@ public sealed class GoogleTokenService(
         {
             var error = await TryReadErrorAsync(response, ct);
 
-            // invalid_grant = token revogado pelo usuário, senha trocada ou token expirado.
-            // Não adianta tentar de novo: marcamos para o front pedir nova autorização.
+            // invalid_grant = token revoked by the user, password changed or token expired.
+            // Retrying won't help: flag it so the front end asks for a new authorization.
             if (error == "invalid_grant")
             {
-                logger.LogWarning("Refresh token do usuário {UserId} inválido; marcando para reconectar", userId);
+                logger.LogWarning("Refresh token for user {UserId} is invalid; flagging for reconnect", userId);
                 connection.Status = GoogleConnectionStatus.NeedsReconnect;
                 connection.UpdatedAt = time.GetUtcNow();
                 await db.SaveChangesAsync(ct);
@@ -64,9 +64,9 @@ public sealed class GoogleTokenService(
         }
 
         var token = await response.Content.ReadFromJsonAsync<TokenResponse>(ct)
-                    ?? throw new InvalidOperationException("Resposta vazia do endpoint de token do Google.");
+                    ?? throw new InvalidOperationException("Empty response from Google's token endpoint.");
 
-        // Expira do cache 2 min antes do Google, para nunca usarmos um token prestes a vencer.
+        // Evicted 2 min before Google expires it, so we never use a token that is about to expire.
         cache.Set(CacheKey(userId), token.AccessToken, TimeSpan.FromSeconds(Math.Max(60, token.ExpiresIn - 120)));
         return token.AccessToken;
     }

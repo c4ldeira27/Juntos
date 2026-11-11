@@ -1,16 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
+import { currentLanguage } from '../i18n'
 import { api, ApiError, type Group, type SharingItem, type Visibility } from '../lib/api'
-import { buttonPrimary, buttonSecondary, Modal } from './ui'
+import { APP_NAME } from '../lib/config'
+import { buttonPrimary, buttonSecondary, Modal, Segmented } from './ui'
 
-// ===================== Criar grupo =====================
+// ===================== Create group =====================
 
 export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const create = useMutation({
     mutationFn: () => api.createGroup(name.trim()),
-    // Coloca o grupo direto no cache: a tela troca para o modo grupo sem esperar outra requisição.
+    // Puts the group straight into the cache: the screen switches to group mode without another request.
     onSuccess: (group) => queryClient.setQueryData(['group'], group),
   })
 
@@ -20,23 +24,23 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal title="Criar grupo" description="Dê um nome para o grupo. Depois você gera o link para convidar." onClose={onClose}>
+    <Modal title={t('createGroup.title')} description={t('createGroup.description')} onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
         <input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={60}
-          placeholder="Ex.: Vini & Ana"
+          placeholder={t('createGroup.placeholder')}
           className="h-11 w-full rounded-xl border border-line bg-bg px-4 text-sm outline-none focus:border-accent"
         />
-        {create.isError && <p className="text-sm text-red-500">Não foi possível criar o grupo. Tente de novo.</p>}
+        {create.isError && <p className="text-sm text-red-500">{t('createGroup.error')}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className={buttonSecondary}>
-            Cancelar
+            {t('common.cancel')}
           </button>
           <button type="submit" disabled={!name.trim() || create.isPending} className={buttonPrimary}>
-            {create.isPending ? 'Criando…' : 'Criar'}
+            {create.isPending ? t('createGroup.creating') : t('createGroup.create')}
           </button>
         </div>
       </form>
@@ -44,12 +48,13 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-// ===================== Convite =====================
+// ===================== Invite =====================
 
 export function InviteDialog({ groupId, onClose }: { groupId: string; onClose: () => void }) {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
-  // Query (e não mutation) para o StrictMode do React não gerar dois convites ao montar duas vezes em dev.
-  // gcTime 0: cada abertura do diálogo gera um link novo.
+  // A query (not a mutation) so React's StrictMode doesn't create two invites when it mounts twice in dev.
+  // gcTime 0: every time the dialog opens, a new link is generated.
   const invite = useQuery({
     queryKey: ['invite', groupId],
     queryFn: () => api.createInvite(groupId),
@@ -66,26 +71,25 @@ export function InviteDialog({ groupId, onClose }: { groupId: string; onClose: (
   }
 
   async function share() {
-    if (invite.data) await navigator.share({ title: 'Convite para o Juntos', url: invite.data.url }).catch(() => {})
+    if (invite.data)
+      await navigator.share({ title: t('invite.shareTitle', { app: APP_NAME }), url: invite.data.url }).catch(() => {})
   }
 
   const full = invite.error instanceof ApiError && invite.error.code === 'group_full'
 
   return (
     <Modal
-      title="Convidar para o grupo"
-      description="Mande este link para a pessoa. Ela entra com a conta Google dela e escolhe o que compartilhar."
+      title={t('invite.title')}
+      description={t('invite.description')}
       onClose={onClose}
       footer={
         <button onClick={onClose} className={buttonSecondary}>
-          Fechar
+          {t('common.close')}
         </button>
       }
     >
       {invite.isPending && <div className="h-11 animate-pulse rounded-xl bg-surface-2" />}
-      {invite.isError && (
-        <p className="text-sm text-red-500">{full ? 'O grupo já está cheio.' : 'Não foi possível gerar o convite.'}</p>
-      )}
+      {invite.isError && <p className="text-sm text-red-500">{full ? t('invite.full') : t('invite.error')}</p>}
       {invite.data && (
         <div className="space-y-3">
           <div className="flex gap-2">
@@ -96,24 +100,24 @@ export function InviteDialog({ groupId, onClose }: { groupId: string; onClose: (
               className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-bg px-3 font-mono text-xs outline-none"
             />
             <button onClick={copy} className={`${buttonPrimary} h-11 w-28 shrink-0`}>
-              {copied ? 'Copiado!' : 'Copiar'}
+              {copied ? t('invite.copied') : t('invite.copy')}
             </button>
           </div>
           {'share' in navigator && (
             <button onClick={share} className={`${buttonSecondary} w-full`}>
-              Compartilhar…
+              {t('invite.share')}
             </button>
           )}
           <p className="text-xs text-muted">
-            Vale uma única vez, até{' '}
-            {new Date(invite.data.expiresAt).toLocaleString('pt-BR', {
-              weekday: 'short',
-              day: 'numeric',
-              month: 'short',
-              hour: '2-digit',
-              minute: '2-digit',
+            {t('invite.validUntil', {
+              date: new Date(invite.data.expiresAt).toLocaleString(currentLanguage(), {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+                hour: 'numeric',
+                minute: '2-digit',
+              }),
             })}
-            .
           </p>
         </div>
       )}
@@ -121,33 +125,34 @@ export function InviteDialog({ groupId, onClose }: { groupId: string; onClose: (
   )
 }
 
-// ===================== O que eu compartilho =====================
+// ===================== What I share =====================
 
 type Choice = Visibility | null
 
-const CALENDAR_OPTIONS: { value: Choice; label: string }[] = [
-  { value: 'details', label: 'Detalhes' },
-  { value: 'busyOnly', label: 'Só ocupado' },
-  { value: null, label: 'Oculta' },
-]
-
-// "Só ocupado" não faz sentido para tarefas (não são blocos de tempo).
-const TASK_OPTIONS: { value: Choice; label: string }[] = [
-  { value: 'details', label: 'Mostrar' },
-  { value: null, label: 'Oculta' },
-]
-
 export function SharingDialog({ group, onClose }: { group: Group; onClose: () => void }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const me = group.members.find((m) => m.isMe)
   const firstTime = !me?.sharingConfigured
   const sharing = useQuery({ queryKey: ['sharing', group.id], queryFn: () => api.sharing(group.id), staleTime: 0 })
   const [edited, setEdited] = useState<Record<string, Choice> | null>(null)
 
-  // Primeira vez: sugere compartilhar a agenda principal com detalhes e o resto oculto.
+  const calendarOptions = [
+    { value: 'details', label: t('sharing.options.details') },
+    { value: 'busyOnly', label: t('sharing.options.busyOnly') },
+    { value: null, label: t('sharing.options.hidden') },
+  ] as const
+  // "Busy only" makes no sense for tasks (they aren't time blocks).
+  const taskOptions = [
+    { value: 'details', label: t('sharing.options.show') },
+    { value: null, label: t('sharing.options.hidden') },
+  ] as const
+
+  // First time: suggests sharing the primary calendar with details and hiding the rest.
   const initial = (items: SharingItem[]) =>
     Object.fromEntries(items.map((i) => [i.sourceId, firstTime ? (i.primary ? 'details' : null) : i.visibility]))
   const choices: Record<string, Choice> | null = edited ?? (sharing.data ? initial(sharing.data) : null)
+  const nameOf = (item: SharingItem) => item.name ?? t('personal.untitledList')
 
   const save = useMutation({
     mutationFn: () =>
@@ -155,7 +160,7 @@ export function SharingDialog({ group, onClose }: { group: Group; onClose: () =>
         group.id,
         (sharing.data ?? [])
           .filter((i) => choices?.[i.sourceId])
-          .map((i) => ({ sourceId: i.sourceId, name: i.name, visibility: choices![i.sourceId]! })),
+          .map((i) => ({ sourceId: i.sourceId, name: nameOf(i), visibility: choices![i.sourceId]! })),
       ),
     onSuccess: async () => {
       await Promise.all([
@@ -170,21 +175,16 @@ export function SharingDialog({ group, onClose }: { group: Group; onClose: () =>
 
   return (
     <Modal
-      title={firstTime ? 'O que você quer compartilhar?' : 'O que eu compartilho'}
-      description={
-        <>
-          Isso define o que aparece no grupo, para todos. Eventos marcados como <b>particulares</b> no Google sempre
-          aparecem como “Ocupado” para os outros.
-        </>
-      }
+      title={firstTime ? t('sharing.titleFirst') : t('sharing.title')}
+      description={<Trans i18nKey="sharing.description" components={{ b: <b /> }} />}
       onClose={onClose}
       footer={
         <>
           <button onClick={onClose} className={buttonSecondary}>
-            {firstTime ? 'Depois' : 'Cancelar'}
+            {firstTime ? t('sharing.later') : t('common.cancel')}
           </button>
           <button onClick={() => save.mutate()} disabled={!choices || save.isPending} className={buttonPrimary}>
-            {save.isPending ? 'Salvando…' : 'Salvar'}
+            {save.isPending ? t('sharing.saving') : t('sharing.save')}
           </button>
         </>
       }
@@ -196,43 +196,32 @@ export function SharingDialog({ group, onClose }: { group: Group; onClose: () =>
           ))}
         </div>
       )}
-      {sharing.isError && <p className="text-sm text-red-500">Não foi possível carregar suas agendas.</p>}
+      {sharing.isError && <p className="text-sm text-red-500">{t('sharing.loadError')}</p>}
       {sharing.data && choices && (
         <ul className="divide-y divide-line">
-          {sharing.data.map((item) => {
-            const options = item.kind === 'taskList' ? TASK_OPTIONS : CALENDAR_OPTIONS
-            return (
-              <li key={item.sourceId} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{item.name}</div>
-                  <div className="text-xs text-muted">
-                    {item.kind === 'taskList' ? 'Lista de tarefas' : item.primary ? 'Agenda principal' : 'Agenda'}
-                  </div>
+          {sharing.data.map((item) => (
+            <li key={item.sourceId} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{nameOf(item)}</div>
+                <div className="text-xs text-muted">
+                  {item.kind === 'taskList'
+                    ? t('sharing.kind.taskList')
+                    : item.primary
+                      ? t('sharing.kind.primary')
+                      : t('sharing.kind.calendar')}
                 </div>
-                <div role="radiogroup" aria-label={`Compartilhamento de ${item.name}`} className="flex shrink-0 rounded-full bg-surface-2 p-0.5">
-                  {options.map((o) => {
-                    const active = choices[item.sourceId] === o.value
-                    return (
-                      <button
-                        key={o.label}
-                        role="radio"
-                        aria-checked={active}
-                        onClick={() => set(item.sourceId, o.value)}
-                        className={`h-7 rounded-full px-3 text-xs font-medium transition ${
-                          active ? 'bg-surface text-ink shadow-sm' : 'text-muted hover:text-ink'
-                        }`}
-                      >
-                        {o.label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </li>
-            )
-          })}
+              </div>
+              <Segmented<Choice>
+                label={t('sharing.ariaLabel', { name: nameOf(item) })}
+                value={choices[item.sourceId] ?? null}
+                options={item.kind === 'taskList' ? taskOptions : calendarOptions}
+                onChange={(value) => set(item.sourceId, value)}
+              />
+            </li>
+          ))}
         </ul>
       )}
-      {save.isError && <p className="mt-3 text-sm text-red-500">Não foi possível salvar. Tente de novo.</p>}
+      {save.isError && <p className="mt-3 text-sm text-red-500">{t('sharing.saveError')}</p>}
     </Modal>
   )
 }

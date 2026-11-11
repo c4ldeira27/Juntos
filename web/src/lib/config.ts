@@ -1,19 +1,19 @@
-/** Nome provisório: troque aqui (e no <title> do index.html). */
+/** Product name (not translated). Change it here and in index.html's <title>. */
 export const APP_NAME = 'Juntos'
 
 /**
- * Paleta das fontes. No M1 cada agenda tem uma cor; no M3 a cor passa a ser da PESSOA
- * e as agendas dela viram tons dessa cor.
+ * Palette for the personal agenda (one color per calendar). In the group agenda the color
+ * belongs to the PERSON and comes from the back end (GroupRules.MemberColors).
  */
 export const PALETTE = [
-  '#7c6cff', // violeta
+  '#7c6cff', // violet
   '#ff7a6b', // coral
   '#14b8a6', // teal
-  '#f5a524', // âmbar
-  '#38bdf8', // céu
-  '#ec4899', // rosa
-  '#84cc16', // lima
-  '#a78bfa', // lavanda
+  '#f5a524', // amber
+  '#38bdf8', // sky
+  '#ec4899', // pink
+  '#84cc16', // lime
+  '#a78bfa', // lavender
 ] as const
 
 export const colorAt = (index: number) => PALETTE[index % PALETTE.length]

@@ -10,15 +10,15 @@ public static class AuthEndpoints
     {
         var group = app.MapGroup("/auth");
 
-        // O front navega para cá (window.location), não faz fetch: o fluxo OAuth é feito de redirects.
+        // The front end navigates here (window.location), it doesn't fetch: the OAuth flow is a chain of redirects.
         group.MapGet("/login", (string? returnUrl, bool? consent) =>
         {
             var properties = new GoogleChallengeProperties
             {
                 RedirectUri = SafeLocalUrl(returnUrl),
-                // select_account: casais costumam ter mais de uma conta Google no mesmo navegador.
-                // consent: força a tela de permissões para o Google emitir um novo refresh token
-                // (usado quando a conexão foi revogada ou o usuário desmarcou a permissão da agenda).
+                // select_account: couples often have more than one Google account in the same browser.
+                // consent: forces the permissions screen so Google issues a new refresh token
+                // (used when the connection was revoked or the user unchecked the calendar permission).
                 Prompt = consent == true ? "consent select_account" : "select_account",
             };
             return Results.Challenge(properties, [GoogleDefaults.AuthenticationScheme]);
@@ -32,8 +32,8 @@ public static class AuthEndpoints
     }
 
     /// <summary>
-    /// Evita "open redirect": sem isso, alguém poderia mandar um link
-    /// /auth/login?returnUrl=https://site-falso.com e usar nosso login como trampolim para phishing.
+    /// Prevents "open redirect": otherwise someone could send a link like
+    /// /auth/login?returnUrl=https://fake-site.com and use our login as a springboard for phishing.
     /// </summary>
     internal static string SafeLocalUrl(string? url) =>
         !string.IsNullOrEmpty(url) && url.StartsWith('/') && !url.StartsWith("//") && !url.StartsWith("/\\")
