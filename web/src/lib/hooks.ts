@@ -19,20 +19,17 @@ function readStored(): string[] | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     return raw ? (JSON.parse(raw) as string[]) : null
   } catch {
-    return null // modo privado ou storage bloqueado: segue com o padrão
+    return null // private mode or blocked storage: fall back to the default
   }
 }
 
-/**
- * Quais fontes estão visíveis. No M1 é preferência local do navegador;
- * no M2 vira configuração de compartilhamento salva no backend (por grupo).
- */
+/** Which sources are visible in the personal agenda (a per-browser preference). */
 export function useSelectedSources(sources: Source[] | undefined) {
   const [stored, setStored] = useState<string[] | null>(readStored)
 
   const selected = useMemo(() => {
     if (!sources) return []
-    // Primeiro acesso: agenda principal + listas de tarefas.
+    // First visit: primary calendar + task lists.
     if (stored === null) return sources.filter((s) => s.primary || s.kind === 'taskList').map((s) => s.id)
     const valid = new Set(sources.map((s) => s.id))
     return stored.filter((id) => valid.has(id))
@@ -45,13 +42,13 @@ export function useSelectedSources(sources: Source[] | undefined) {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
       } catch {
-        // ignora: a escolha vale só nesta sessão
+        // ignore: the choice lasts only for this session
       }
     },
     [selected],
   )
 
-  // Ordenado para a queryKey do TanStack Query não mudar só porque a ordem dos cliques mudou.
+  // Sorted so TanStack Query's queryKey doesn't change just because the click order changed.
   const sorted = useMemo(() => [...selected].sort(), [selected])
   return { selected: sorted, toggle }
 }

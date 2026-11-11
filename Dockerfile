@@ -1,18 +1,18 @@
 # syntax=docker/dockerfile:1
-# Build multi-stage: cada estágio tem só as ferramentas de que precisa,
-# e a imagem final leva apenas o runtime do ASP.NET + o app publicado (sem SDK, sem Node).
+# Multi-stage build: each stage only has the tools it needs,
+# and the final image ships just the ASP.NET runtime + the published app (no SDK, no Node).
 
-# ---------- 1. Front: gera os arquivos estáticos do React ----------
+# ---------- 1. Front end: builds React's static files ----------
 FROM node:24-alpine AS web
 WORKDIR /web
-# Copiar só os manifests antes do código faz o Docker reaproveitar o cache do "npm ci"
-# enquanto as dependências não mudarem.
+# Copying only the manifests before the code lets Docker reuse the "npm ci" cache
+# as long as dependencies don't change.
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-# ---------- 2. Back: compila e publica a API ----------
+# ---------- 2. Back end: compiles and publishes the API ----------
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY src/Agenda.Api/Agenda.Api.csproj src/Agenda.Api/
@@ -24,9 +24,9 @@ RUN dotnet publish src/Agenda.Api/Agenda.Api.csproj -c Release -o /app --no-rest
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app ./
-# O build do React vira o wwwroot: o mesmo container serve a API e o site.
+# The React build becomes wwwroot: the same container serves the API and the site.
 COPY --from=web /web/dist ./wwwroot
-# Usuário sem privilégios de root (já existe na imagem oficial).
+# Non-root user (already present in the official image).
 USER $APP_UID
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080

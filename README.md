@@ -1,58 +1,65 @@
-# Juntos (nome provisório)
+# Juntos
 
-Une as agendas do Google de um casal (ou de um grupo pequeno) em uma visualização única,
-limpa e moderna, com cada pessoa em uma cor. Somente leitura: nada é alterado no Google.
+Brings a couple's (or a small group's) Google calendars together in a single, clean and modern view,
+with each person in their own color. Read-only: nothing is ever changed in Google.
+
+> "Juntos" means "together" in Portuguese. The UI is available in English and Brazilian Portuguese.
 
 ## Stack
 
-| Camada | Tecnologia |
+| Layer | Technology |
 |---|---|
-| Front | React 19 + Vite + TypeScript, TanStack Query, Tailwind CSS v4, FullCalendar 6 |
-| Back | ASP.NET Core 10 (Minimal APIs), EF Core 10, SDK do Google (Calendar v3, Tasks v1) |
-| Banco | SQL Server (local via Docker; Azure SQL em produção) |
-| Auth | Login com Google (OAuth 2.0) no padrão **BFF**: tokens ficam no backend, o navegador só recebe um cookie HttpOnly |
-| Deploy (M4) | Um container (API + front estático) no Azure Container Apps |
+| Front end | React 19 + Vite + TypeScript, TanStack Query, Tailwind CSS v4, FullCalendar 6, react-i18next |
+| Back end | ASP.NET Core 10 (Minimal APIs), EF Core 10, Google SDK (Calendar v3, Tasks v1) |
+| Database | SQL Server (Docker locally; Azure SQL in production) |
+| Auth | Sign in with Google (OAuth 2.0) using the **BFF** pattern: tokens stay on the back end, the browser only gets an HttpOnly cookie |
+| Deploy (M4) | A single container (API + static front end) on Azure Container Apps |
 
-## Estrutura
+## Structure
 
 ```
 src/Agenda.Api/
-  Auth/            login com Google, cookie de sessão, endpoints /auth/*
-  GoogleApi/       refresh token → access token, clientes do SDK do Google
-  Schedule/        regras de "o que aparece e como" (AgendaMapper) e endpoints /api/me/*
-  Data/            EF Core: DbContext, entidades, migrations
-  Infrastructure/  tratamento de erros (ProblemDetails com "code")
-tests/Agenda.Api.Tests/   testes das regras de negócio
-web/                      React (em dev o Vite faz proxy de /api, /auth, /signin-google para a API)
-docs/                     guias (setup do Google Cloud)
-Dockerfile                build multi-stage: React + .NET → uma imagem
-docker-compose.yml        SQL Server local
+  Auth/            Google sign-in, session cookie, /auth/* endpoints
+  GoogleApi/       refresh token → access token, Google SDK clients
+  Schedule/        "what shows up and how" rules (AgendaMapper), agenda service, /api/me/* endpoints
+  Groups/          groups, invites, sharing and the group agenda (/api/groups/*, /api/invites/*)
+  Data/            EF Core: DbContext, entities, migrations
+  Infrastructure/  error handling (ProblemDetails with a stable "code")
+tests/Agenda.Api.Tests/
+  *.cs             unit tests for the business rules
+  Integration/     the real API against a throwaway SQL Server (Testcontainers)
+web/
+  src/i18n/        translations (en is the source of truth; pt-BR must match its keys)
+  src/components/  screens, dialogs, calendar
+docs/              guides (Google Cloud setup)
+Dockerfile         multi-stage build: React + .NET → one image
+docker-compose.yml local SQL Server
 ```
 
-## Como rodar (dev)
+## Running locally
 
-Pré-requisitos: .NET SDK 10, Node 24, Docker Desktop.
+Prerequisites: .NET SDK 10, Node 24, Docker Desktop.
 
-1. **Google Cloud**: siga [docs/setup-google-cloud.md](docs/setup-google-cloud.md) (uma vez só).
-2. **Banco**: crie o `.env` a partir do `.env.example` e suba o SQL Server:
+1. **Google Cloud**: follow [docs/setup-google-cloud.md](docs/setup-google-cloud.md) (one time only).
+2. **Database**: create `.env` from `.env.example` and start SQL Server:
 
    ```bash
    docker compose up -d
    ```
 
-3. **Connection string** (mesma senha do `.env`):
+3. **Connection string** (same password as in `.env`):
 
    ```bash
-   dotnet user-secrets set "ConnectionStrings:Default" "Server=localhost,14333;Database=Agenda;User Id=sa;Password=SUA_SENHA;TrustServerCertificate=True" --project src/Agenda.Api
+   dotnet user-secrets set "ConnectionStrings:Default" "Server=localhost,14333;Database=Agenda;User Id=sa;Password=YOUR_PASSWORD;TrustServerCertificate=True" --project src/Agenda.Api
    ```
 
-4. **API** (aplica as migrations sozinha em dev), em `http://localhost:5080`:
+4. **API** (applies migrations on startup in dev), on `http://localhost:5080`:
 
    ```bash
    dotnet run --project src/Agenda.Api
    ```
 
-5. **Front**, em outro terminal:
+5. **Front end**, in another terminal:
 
    ```bash
    npm --prefix web install
@@ -62,16 +69,16 @@ Pré-requisitos: .NET SDK 10, Node 24, Docker Desktop.
    npm --prefix web run dev
    ```
 
-6. Abra <http://localhost:5173>.
+6. Open <http://localhost:5173>.
 
-## Comandos úteis
+## Useful commands
 
 ```bash
 dotnet test
 ```
 
 ```bash
-dotnet ef migrations add NomeDaMigration --project src/Agenda.Api --output-dir Data/Migrations
+dotnet ef migrations add MigrationName --project src/Agenda.Api --output-dir Data/Migrations
 ```
 
 ```bash
@@ -80,34 +87,47 @@ docker build -t agenda:local .
 
 ## Endpoints
 
-| Método | Rota | Descrição |
+| Method | Route | Description |
 |---|---|---|
-| GET | `/auth/login?returnUrl=&consent=` | Inicia o login no Google (`consent=true` força nova autorização) |
-| POST | `/auth/logout` | Encerra a sessão |
-| GET | `/api/me` | Usuário logado + status da conexão com o Google |
-| GET | `/api/me/sources` | Agendas e listas de tarefas da conta |
-| GET | `/api/me/agenda?from=&to=&source=` | Itens normalizados no intervalo (`source` repetido: `cal:{id}`, `tasks:{id}`) |
-| GET | `/api/groups/current` | Grupo do usuário (204 se não estiver em nenhum) |
-| POST | `/api/groups` | Cria um grupo (regra do MVP: 1 grupo por pessoa) |
-| POST | `/api/groups/{id}/invites` | Gera link de convite (uso único, 48h) |
-| DELETE | `/api/groups/{id}/members/me` | Sai do grupo (dono sai → o membro mais antigo assume; último sai → grupo apagado) |
-| GET/PUT | `/api/groups/{id}/sharing` | Minhas agendas e como cada uma aparece no grupo (Detalhes / Só ocupado / Oculta) |
-| GET | `/api/groups/{id}/agenda?from=&to=` | Agenda unificada, lida com o token de cada membro e filtrada pela privacidade de cada um |
-| GET | `/api/invites/{token}` | Prévia do convite |
-| POST | `/api/invites/{token}/accept` | Aceita o convite (idempotente) |
+| GET | `/auth/login?returnUrl=&consent=` | Starts Google sign-in (`consent=true` forces a new authorization) |
+| POST | `/auth/logout` | Ends the session |
+| GET | `/api/me` | Signed-in user + Google connection status |
+| GET | `/api/me/sources` | The account's calendars and task lists |
+| GET | `/api/me/agenda?from=&to=&source=` | Normalized items in the range (`source` repeated: `cal:{id}`, `tasks:{id}`) |
+| GET | `/api/groups/current` | The user's group (204 if they're not in one) |
+| POST | `/api/groups` | Creates a group (MVP rule: 1 group per person) |
+| POST | `/api/groups/{id}/invites` | Generates an invite link (single use, 48h) |
+| DELETE | `/api/groups/{id}/members/me` | Leaves the group (owner leaves → oldest member takes over; last one leaves → group deleted) |
+| GET/PUT | `/api/groups/{id}/sharing` | My calendars and how each one shows in the group (Details / Busy only / Hidden) |
+| GET | `/api/groups/{id}/agenda?from=&to=` | Unified agenda, read with each member's token and filtered by each one's privacy choices |
+| GET | `/api/invites/{token}` | Invite preview |
+| POST | `/api/invites/{token}/accept` | Accepts the invite (idempotent) |
 | GET | `/health` | Health check |
 
-## Testes
+The API returns no UI text: errors carry a stable `code` (e.g. `google_reconnect_required`)
+and untitled items come with `title: null`, so the front end shows them in the user's language.
 
-- **Unidade**: regras de exibição (`AgendaMapper`), cores, tokens de convite.
-- **Integração** (`tests/.../Integration`): a API roda em memória (`WebApplicationFactory`) contra um
-  SQL Server descartável criado pelo **Testcontainers**, então o Docker precisa estar aberto.
-  O login do Google é trocado por um esquema de teste (header `X-Test-User`).
+## Internationalization
+
+- `web/src/i18n/en.ts` is the source of truth. `pt-BR.ts` is typed against it, so a missing
+  or extra key fails the build, and `t('some.key')` only accepts keys that exist.
+- The language follows the browser (`pt*` → `pt-BR`, anything else → `en`) and can be switched
+  manually in the sidebar or on the sign-in screens (saved in `localStorage`).
+- FullCalendar's locale and time format follow along (24h in pt-BR, 12h in English).
+- To add a language: create `xx.ts` typed like `pt-BR.ts`, then register it in `LANGUAGES` and `resources` in `i18n/index.ts`.
+
+## Tests
+
+- **Unit**: display rules (`AgendaMapper`), colors, invite tokens.
+- **Integration** (`tests/.../Integration`): the API runs in memory (`WebApplicationFactory`) against a
+  throwaway SQL Server created by **Testcontainers**, so Docker must be running.
+  Google sign-in is replaced by a test scheme (`X-Test-User` header).
 
 ## Roadmap
 
-- [x] **M1**: login com Google, conexão, listagem e visualização das **próprias** agendas
-- [x] **M2**: grupos, convite por link, compartilhamento por agenda (Detalhes / Só ocupado)
-- [x] **M3**: agenda unificada do grupo, com cor por pessoa
-- [ ] **M4**: deploy manual no Azure com domínio
-- [ ] **M5**: Bicep, CI/CD (GitHub Actions + OIDC), observabilidade, privacidade/exclusão de conta
+- [x] **M1**: Google sign-in, connection, listing and viewing your **own** calendars
+- [x] **M2**: groups, invite links, per-calendar sharing (Details / Busy only)
+- [x] **M3**: unified group agenda, one color per person
+- [x] i18n (English + Brazilian Portuguese)
+- [ ] **M4**: manual deploy to Azure with a custom domain
+- [ ] **M5**: Bicep, CI/CD (GitHub Actions + OIDC), observability, privacy policy / account deletion

@@ -15,9 +15,9 @@ public sealed record GoogleClients(CalendarService Calendar, TasksService Tasks)
 }
 
 /// <summary>
-/// Cria os clientes do SDK do Google já autenticados como o usuário.
-/// O token é obtido UMA vez por requisição, antes das chamadas paralelas:
-/// o DbContext não é thread-safe, então não podemos deixar cada chamada paralela buscar o token.
+/// Creates Google SDK clients already authenticated as the user.
+/// The token is fetched ONCE per request, before the parallel calls:
+/// DbContext is not thread-safe, so each parallel call can't fetch its own token.
 /// </summary>
 public sealed class GoogleClientFactory(GoogleTokenService tokens)
 {

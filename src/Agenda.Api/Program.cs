@@ -12,14 +12,14 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ---------- Dados ----------
+// ---------- Data ----------
 builder.Services.AddDbContext<AppDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
 
 builder.Services.AddDataProtection()
     .SetApplicationName("Agenda")
     .PersistKeysToDbContext<AppDbContext>();
-// TODO(M4): .ProtectKeysWithAzureKeyVault(...) para as chaves não ficarem em texto puro no banco.
+// TODO(M4): .ProtectKeysWithAzureKeyVault(...) so the keys aren't stored in plain text in the database.
 
 // ---------- Google ----------
 builder.Services.AddMemoryCache();
@@ -39,13 +39,13 @@ builder.Services.AddExceptionHandler<AppExceptionHandler>();
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
 
-// No Azure Container Apps o HTTPS termina no ingress e o app recebe HTTP puro.
-// Sem ler o X-Forwarded-Proto, o ASP.NET acharia que está em http e montaria
-// o redirect_uri do Google errado (e recusaria o cookie Secure).
+// On Azure Container Apps, HTTPS terminates at the ingress and the app receives plain HTTP.
+// Without reading X-Forwarded-Proto, ASP.NET would think it's on http and build
+// the wrong Google redirect_uri (and reject the Secure cookie).
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
 {
     o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    // O container só é alcançável pelo ingress, então confiamos nele.
+    // The container is only reachable through the ingress, so we trust it.
     o.KnownIPNetworks.Clear();
     o.KnownProxies.Clear();
 });
@@ -57,8 +57,8 @@ app.UseExceptionHandler();
 if (!app.Environment.IsDevelopment())
     app.UseHsts();
 
-// Em produção o build do React vai para wwwroot e é servido por este mesmo app:
-// um domínio só, sem CORS, e o cookie de sessão funciona sem configuração extra.
+// In production the React build goes to wwwroot and is served by this same app:
+// a single domain, no CORS, and the session cookie works with no extra setup.
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
@@ -70,19 +70,19 @@ app.MapAuthEndpoints();
 app.MapMeEndpoints();
 app.MapGroupEndpoints();
 
-// Rotas /api desconhecidas devem dar 404, não devolver o index.html do React.
+// Unknown /api routes must return 404, not React's index.html.
 app.MapFallback("/api/{**path}", () => Results.NotFound());
 app.MapFallbackToFile("index.html");
 
 if (app.Environment.IsDevelopment())
 {
-    // Em dev aplicamos as migrations ao subir. Em produção isso vira um passo do pipeline (M4),
-    // porque com várias réplicas subindo juntas todas tentariam migrar ao mesmo tempo.
+    // In dev, migrations are applied on startup. In production this becomes a pipeline step (M4),
+    // because several replicas starting together would all try to migrate at the same time.
     using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
 }
 
 app.Run();
 
-// Expõe a classe Program para os testes de integração (WebApplicationFactory<Program>).
+// Exposes the Program class to the integration tests (WebApplicationFactory<Program>).
 public partial class Program;

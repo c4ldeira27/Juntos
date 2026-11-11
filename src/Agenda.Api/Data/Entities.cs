@@ -4,7 +4,7 @@ public sealed class User
 {
     public Guid Id { get; set; }
 
-    /// <summary>"sub" do Google: identificador estável da conta (o e-mail pode mudar, o sub não).</summary>
+    /// <summary>Google "sub": the stable account identifier (the e-mail can change, the sub cannot).</summary>
     public required string GoogleSubject { get; set; }
 
     public required string Email { get; set; }
@@ -20,20 +20,20 @@ public enum GoogleConnectionStatus
 {
     Ok = 1,
 
-    /// <summary>O refresh token foi revogado ou expirou: o usuário precisa autorizar de novo.</summary>
+    /// <summary>The refresh token was revoked or expired: the user must authorize again.</summary>
     NeedsReconnect = 2,
 }
 
 /// <summary>
-/// Conexão com a conta Google. Guardamos só o refresh token (criptografado);
-/// o access token dura ~1h e fica apenas em cache de memória.
+/// Connection to the Google account. Only the refresh token is stored (encrypted);
+/// the access token lasts ~1h and lives only in the memory cache.
 /// </summary>
 public sealed class GoogleConnection
 {
     public Guid UserId { get; set; }
     public required string RefreshTokenEncrypted { get; set; }
 
-    /// <summary>Escopos concedidos, separados por espaço (o usuário pode desmarcar algum na tela do Google).</summary>
+    /// <summary>Granted scopes, space-separated (the user can uncheck some on Google's consent screen).</summary>
     public required string GrantedScopes { get; set; }
 
     public GoogleConnectionStatus Status { get; set; }
@@ -43,13 +43,13 @@ public sealed class GoogleConnection
         GrantedScopes.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(scope);
 }
 
-/// <summary>Grupo de pessoas que veem as agendas umas das outras (no caso de vocês, o casal).</summary>
+/// <summary>A group of people who see each other's calendars (in our case, the couple).</summary>
 public sealed class Group
 {
     public Guid Id { get; set; }
     public required string Name { get; set; }
 
-    /// <summary>Só informativo, sem FK: evita múltiplos caminhos de cascade no SQL Server (User → Group → Member e User → Member).</summary>
+    /// <summary>Informational only, no FK: avoids multiple cascade paths in SQL Server (User → Group → Member and User → Member).</summary>
     public Guid CreatedByUserId { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
@@ -70,12 +70,12 @@ public sealed class GroupMember
     public Guid UserId { get; set; }
     public GroupRole Role { get; set; }
 
-    /// <summary>Cor da pessoa no grupo (hex). Todos os eventos dela aparecem nessa cor.</summary>
+    /// <summary>The person's color in the group (hex). All of their events are shown in this color.</summary>
     public required string Color { get; set; }
 
     public DateTimeOffset JoinedAt { get; set; }
 
-    /// <summary>Quando a pessoa salvou as escolhas de compartilhamento. Nulo = ainda não escolheu (o front abre o onboarding).</summary>
+    /// <summary>When the person saved their sharing choices. Null = not chosen yet (the front end opens onboarding).</summary>
     public DateTimeOffset? SharingConfiguredAt { get; set; }
 
     public Group Group { get; set; } = null!;
@@ -84,8 +84,8 @@ public sealed class GroupMember
 }
 
 /// <summary>
-/// Convite por link. Guardamos o HASH do token, não o token: quem tiver acesso ao banco
-/// não consegue montar um link válido (mesma lógica de senha).
+/// Invite link. We store the token's HASH, not the token itself: anyone with database access
+/// still can't build a valid link (same idea as passwords).
 /// </summary>
 public sealed class GroupInvite
 {
@@ -102,8 +102,8 @@ public sealed class GroupInvite
 }
 
 /// <summary>
-/// Uma agenda (ou lista de tarefas) que um membro decidiu mostrar no grupo, e com quanto detalhe.
-/// Sem linha = não compartilhada. Pertence ao GroupMember: ao sair do grupo, o banco apaga em cascata.
+/// A calendar (or task list) a member chose to show in the group, and with how much detail.
+/// No row = not shared. Owned by the GroupMember: leaving the group cascades the delete in the database.
 /// </summary>
 public sealed class SharedSource
 {
@@ -113,7 +113,7 @@ public sealed class SharedSource
     public Schedule.SourceKind Kind { get; set; }
     public required string GoogleId { get; set; }
 
-    /// <summary>Nome no momento em que foi compartilhada (mostrado se a agenda sumir do Google).</summary>
+    /// <summary>Name at the time it was shared (shown if the calendar disappears from Google).</summary>
     public required string DisplayName { get; set; }
 
     public Schedule.SourceVisibility Visibility { get; set; }

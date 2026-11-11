@@ -2,11 +2,11 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-// Em dev o Vite (5173) repassa as rotas do backend para o ASP.NET (5080).
-// Para o navegador tudo vem da mesma origem, igual em produção (onde o .NET serve o build do React).
-// IMPORTANTE: changeOrigin: false mantém o Host "localhost:5173", e o ASP.NET monta o redirect_uri do Google
-// como http://localhost:5173/signin-google. A forma curta ('/api': 'http://...') liga changeOrigin: true,
-// o Host vira "localhost:5080" e o Google recusa com redirect_uri_mismatch.
+// In dev, Vite (5173) proxies the back-end routes to ASP.NET (5080).
+// To the browser everything comes from the same origin, just like production (where .NET serves the React build).
+// IMPORTANT: changeOrigin: false keeps the Host "localhost:5173", so ASP.NET builds Google's redirect_uri
+// as http://localhost:5173/signin-google. The shorthand ('/api': 'http://...') turns changeOrigin on,
+// the Host becomes "localhost:5080" and Google rejects it with redirect_uri_mismatch.
 const backend = { target: 'http://localhost:5080', changeOrigin: false }
 
 export default defineConfig({

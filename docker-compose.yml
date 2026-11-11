@@ -1,5 +1,5 @@
-# Infra local de desenvolvimento. A API e o front rodam fora do Docker (dotnet run / npm run dev)
-# para ter hot reload e debugger; aqui fica só o que é "serviço": o banco.
+# Local development infrastructure. The API and the front end run outside Docker (dotnet run / npm run dev)
+# for hot reload and debugging; only "services" live here: the database.
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -7,8 +7,8 @@ services:
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_PID: Developer
-      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Crie o arquivo .env a partir do .env.example}
-    # Porta 14333 no host para não brigar com um SQL Server instalado na máquina.
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Create the .env file from .env.example}
+    # Host port 14333 so it doesn't clash with a SQL Server installed on the machine.
     ports:
       - "14333:1433"
     volumes:

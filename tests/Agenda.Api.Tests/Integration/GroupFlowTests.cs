@@ -8,9 +8,11 @@ namespace Agenda.Api.Tests.Integration;
 
 public class GroupFlowTests(ApiFactory api) : IClassFixture<ApiFactory>
 {
+    private const string WeekQuery = "from=2026-11-09T00:00:00Z&to=2026-11-16T00:00:00Z";
+
     private static string TokenFrom(InviteDto invite) => invite.Url[(invite.Url.LastIndexOf('/') + 1)..];
 
-    private static async Task<(GroupDto Group, string Token)> CreateGroupWithInviteAsync(HttpClient owner, string name = "Nós")
+    private static async Task<(GroupDto Group, string Token)> CreateGroupWithInviteAsync(HttpClient owner, string name = "Us")
     {
         var created = await owner.PostJsonAsync("/api/groups", new CreateGroupRequest(name));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
@@ -22,12 +24,12 @@ public class GroupFlowTests(ApiFactory api) : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Fluxo_completo_criar_convidar_aceitar_compartilhar_e_sair()
+    public async Task FullFlow_CreateInviteAcceptShareAndLeave()
     {
         var (anaId, ana) = await api.CreateUserAsync("Ana");
         var (brunoId, bruno) = await api.CreateUserAsync("Bruno");
 
-        // Sem grupo ainda: 204
+        // No group yet: 204
         Assert.Equal(HttpStatusCode.NoContent, (await ana.GetAsync("/api/groups/current")).StatusCode);
 
         var (group, token) = await CreateGroupWithInviteAsync(ana);
@@ -36,12 +38,12 @@ public class GroupFlowTests(ApiFactory api) : IClassFixture<ApiFactory>
         Assert.Equal(GroupRules.MemberColors[0], owner.Color);
         Assert.False(owner.SharingConfigured);
 
-        // Bruno vê o convite antes de aceitar
+        // Bruno previews the invite before accepting
         var preview = await (await bruno.GetAsync($"/api/invites/{token}")).ReadAsync<InvitePreviewDto>();
         Assert.Equal("valid", preview.Status);
         Assert.Equal("Ana", preview.InvitedBy);
 
-        // Aceita: entra como membro com a segunda cor
+        // Accepts: joins as a member with the second color
         var accepted = await bruno.PostAsync($"/api/invites/{token}/accept", null);
         Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
         var joined = await accepted.ReadAsync<GroupDto>();
@@ -51,21 +53,21 @@ public class GroupFlowTests(ApiFactory api) : IClassFixture<ApiFactory>
         Assert.Equal(GroupRules.MemberColors[1], brunoMember.Color);
         Assert.True(brunoMember.IsMe);
 
-        // Aceitar de novo é idempotente (clicar duas vezes no link não é erro)
+        // Accepting again is idempotent (clicking the link twice isn't an error)
         Assert.Equal(HttpStatusCode.OK, (await bruno.PostAsync($"/api/invites/{token}/accept", null)).StatusCode);
 
-        // Uma terceira pessoa com o mesmo link: já foi usado
+        // A third person with the same link: already used
         var (_, carla) = await api.CreateUserAsync("Carla");
         var reused = await carla.PostAsync($"/api/invites/{token}/accept", null);
         Assert.Equal(HttpStatusCode.Gone, reused.StatusCode);
         Assert.Equal("invite_invalid", await reused.ProblemCodeAsync());
 
-        // Regra do MVP: um grupo por pessoa
-        var second = await ana.PostJsonAsync("/api/groups", new CreateGroupRequest("Outro"));
+        // MVP rule: one group per person
+        var second = await ana.PostJsonAsync("/api/groups", new CreateGroupRequest("Another"));
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
         Assert.Equal("already_in_group", await second.ProblemCodeAsync());
 
-        // Ana compartilha a agenda principal
+        // Ana shares her primary calendar
         var sharing = await ana.PutJsonAsync($"/api/groups/{group.Id}/sharing",
             new UpdateSharingRequest([new SharingChoice("cal:primary", "Ana", SourceVisibility.Details)]));
         Assert.Equal(HttpStatusCode.NoContent, sharing.StatusCode);
@@ -75,7 +77,7 @@ public class GroupFlowTests(ApiFactory api) : IClassFixture<ApiFactory>
         Assert.True(anaMember.SharingConfigured);
         Assert.Equal(1, anaMember.SharedSources);
 
-        // Ana (dona) sai: Bruno vira dono e o compartilhamento dela some em cascata
+        // Ana (owner) leaves: Bruno becomes owner and her sharing is cascade-deleted
         Assert.Equal(HttpStatusCode.NoContent, (await ana.DeleteAsync($"/api/groups/{group.Id}/members/me")).StatusCode);
         await api.WithDbAsync(async db =>
         {
@@ -83,13 +85,24 @@ public class GroupFlowTests(ApiFactory api) : IClassFixture<ApiFactory>
             Assert.False(await db.SharedSources.AnyAsync(s => s.UserId == anaId));
         });
 
-        // Último membro sai: o grupo deixa de existir
+        // The last member leaves: the group no longer exists
         Assert.Equal(HttpStatusCode.NoContent, (await bruno.DeleteAsync($"/api/groups/{group.Id}/members/me")).StatusCode);
         await api.WithDbAsync(async db => Assert.False(await db.Groups.AnyAsync(g => g.Id == group.Id)));
     }
 
     [Fact]
-    public async Task Convite_expirado_e_recusado()
+    public async Task CreateInvite_ReturnsEnglishInviteRoute()
+    {
+        var (_, ana) = await api.CreateUserAsync("Ana");
+        var created = await (await ana.PostJsonAsync("/api/groups", new CreateGroupRequest("Us"))).ReadAsync<GroupDto>();
+
+        var invite = await (await ana.PostAsync($"/api/groups/{created.Id}/invites", null)).ReadAsync<InviteDto>();
+
+        Assert.Matches("/invite/[A-Za-z0-9_-]{43}$", invite.Url);
+    }
+
+    [Fact]
+    public async Task AcceptInvite_Expired_IsRejected()
     {
         var (_, ana) = await api.CreateUserAsync("Ana");
         var (_, bruno) = await api.CreateUserAsync("Bruno");
@@ -105,40 +118,39 @@ public class GroupFlowTests(ApiFactory api) : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Token_inexistente_da_404()
+    public async Task PreviewInvite_UnknownToken_Returns404()
     {
         var (_, ana) = await api.CreateUserAsync("Ana");
 
-        var response = await ana.GetAsync("/api/invites/token-que-nao-existe");
+        var response = await ana.GetAsync("/api/invites/token-that-does-not-exist");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Equal("invite_not_found", await response.ProblemCodeAsync());
     }
 
     [Fact]
-    public async Task Quem_nao_e_membro_recebe_404_em_tudo_do_grupo()
+    public async Task GroupEndpoints_NonMember_Gets404Everywhere()
     {
         var (_, ana) = await api.CreateUserAsync("Ana");
-        var (_, intruso) = await api.CreateUserAsync("Intruso");
+        var (_, intruder) = await api.CreateUserAsync("Intruder");
         var (group, _) = await CreateGroupWithInviteAsync(ana);
 
+        Assert.Equal(HttpStatusCode.NotFound, (await intruder.GetAsync($"/api/groups/{group.Id}/agenda?{WeekQuery}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await intruder.PostAsync($"/api/groups/{group.Id}/invites", null)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound,
-            (await intruso.GetAsync($"/api/groups/{group.Id}/agenda?from=2026-11-09T00:00:00Z&to=2026-11-16T00:00:00Z")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await intruso.PostAsync($"/api/groups/{group.Id}/invites", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound,
-            (await intruso.PutJsonAsync($"/api/groups/{group.Id}/sharing", new UpdateSharingRequest([]))).StatusCode);
+            (await intruder.PutJsonAsync($"/api/groups/{group.Id}/sharing", new UpdateSharingRequest([]))).StatusCode);
     }
 
     [Fact]
-    public async Task Agenda_do_grupo_marca_membro_sem_conexao_google_como_indisponivel_sem_derrubar_a_resposta()
+    public async Task GroupAgenda_MemberWithoutGoogleConnection_IsUnavailableWithoutFailingTheResponse()
     {
         var (anaId, ana) = await api.CreateUserAsync("Ana");
         var (group, _) = await CreateGroupWithInviteAsync(ana);
         await ana.PutJsonAsync($"/api/groups/{group.Id}/sharing",
             new UpdateSharingRequest([new SharingChoice("cal:primary", "Ana", SourceVisibility.Details)]));
 
-        // Ana não tem GoogleConnection no banco (usuário de teste): a leitura dela falha, a resposta não.
-        var response = await ana.GetAsync($"/api/groups/{group.Id}/agenda?from=2026-11-09T00:00:00Z&to=2026-11-16T00:00:00Z");
+        // Ana has no GoogleConnection in the database (test user): reading her calendar fails, the response doesn't.
+        var response = await ana.GetAsync($"/api/groups/{group.Id}/agenda?{WeekQuery}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var agenda = await response.ReadAsync<GroupAgendaResponse>();
@@ -147,7 +159,7 @@ public class GroupFlowTests(ApiFactory api) : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Validacoes_de_entrada()
+    public async Task Requests_InvalidInput_Return400()
     {
         var (_, ana) = await api.CreateUserAsync("Ana");
 
@@ -162,7 +174,7 @@ public class GroupFlowTests(ApiFactory api) : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Sem_login_recebe_401()
+    public async Task Requests_WithoutLogin_Return401()
     {
         var anonymous = api.CreateClient();
 

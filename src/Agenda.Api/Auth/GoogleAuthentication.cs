@@ -18,8 +18,8 @@ public static class AppClaims
 }
 
 /// <summary>
-/// Padrão BFF: o backend faz o OAuth com o Google e guarda os tokens.
-/// O navegador só recebe um cookie HttpOnly de sessão (JavaScript não consegue ler, então XSS não rouba).
+/// BFF pattern: the back end runs the OAuth flow with Google and keeps the tokens.
+/// The browser only gets an HttpOnly session cookie (JavaScript can't read it, so XSS can't steal it).
 /// </summary>
 public static class GoogleAuthentication
 {
@@ -29,13 +29,13 @@ public static class GoogleAuthentication
         var clientId = configuration["Google:ClientId"];
         var clientSecret = configuration["Google:ClientSecret"];
 
-        // Fail fast: sem as credenciais o app quebraria em toda requisição com um erro confuso.
-        // (EF.IsDesignTime: o "dotnet ef migrations" também executa o Program, e lá não precisamos do Google.)
+        // Fail fast: without the credentials the app would break on every request with a confusing error.
+        // (EF.IsDesignTime: "dotnet ef migrations" also runs Program, and Google isn't needed there.)
         if (!EF.IsDesignTime && (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret)))
             throw new InvalidOperationException(
-                "Google:ClientId e Google:ClientSecret não configurados. Veja docs/setup-google-cloud.md.");
+                "Google:ClientId and Google:ClientSecret are not configured. See docs/setup-google-cloud.md.");
 
-        // Em dev rodamos em http://localhost; em produção o cookie só trafega em HTTPS.
+        // Dev runs on http://localhost; in production the cookie only travels over HTTPS.
         var securePolicy = env.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
 
         services
@@ -44,13 +44,13 @@ public static class GoogleAuthentication
             {
                 o.Cookie.Name = "agenda.session";
                 o.Cookie.HttpOnly = true;
-                // Lax: o navegador não envia o cookie em POST vindo de outro site, o que já barra CSRF nos endpoints de escrita.
+                // Lax: the browser doesn't send the cookie on POSTs coming from other sites, which already blocks CSRF on write endpoints.
                 o.Cookie.SameSite = SameSiteMode.Lax;
                 o.Cookie.SecurePolicy = securePolicy;
                 o.ExpireTimeSpan = TimeSpan.FromDays(14);
                 o.SlidingExpiration = true;
 
-                // Para uma API, "não autenticado" é 401, não redirect para uma página de login.
+                // For an API, "not authenticated" is a 401, not a redirect to a login page.
                 o.Events.OnRedirectToLogin = ctx =>
                 {
                     ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -67,18 +67,18 @@ public static class GoogleAuthentication
                 o.ClientId = clientId ?? "";
                 o.ClientSecret = clientSecret ?? "";
 
-                // offline = o Google devolve um refresh token, que nos deixa ler a agenda
-                // mesmo quando o usuário não está com o app aberto (necessário para o parceiro ver).
+                // offline = Google returns a refresh token, which lets us read the calendar
+                // even when the user doesn't have the app open (needed for the partner to see it).
                 o.AccessType = "offline";
                 foreach (var scope in GoogleScopes.Requested)
                     o.Scope.Add(scope);
 
-                // Não guardamos os tokens no cookie (deixaria o cookie enorme e exporia o token ao navegador).
+                // Tokens are not stored in the cookie (it would get huge and expose the token to the browser).
                 o.SaveTokens = false;
                 o.ClaimActions.MapJsonKey("picture", "picture");
 
-                // O cookie de correlação protege o callback contra CSRF. Lax basta porque o Google
-                // volta para /signin-google com um GET de navegação normal.
+                // The correlation cookie protects the callback against CSRF. Lax is enough because Google
+                // comes back to /signin-google with a regular top-level GET navigation.
                 o.CorrelationCookie.SameSite = SameSiteMode.Lax;
                 o.CorrelationCookie.SecurePolicy = securePolicy;
 
@@ -88,12 +88,12 @@ public static class GoogleAuthentication
         return services;
     }
 
-    /// <summary>Roda uma vez por login bem-sucedido no Google: cria/atualiza o usuário e guarda o refresh token.</summary>
+    /// <summary>Runs once per successful Google login: creates/updates the user and stores the refresh token.</summary>
     private static async Task OnCreatingTicketAsync(OAuthCreatingTicketContext ctx)
     {
-        var identity = ctx.Identity ?? throw new InvalidOperationException("Identity ausente no login do Google.");
+        var identity = ctx.Identity ?? throw new InvalidOperationException("Missing identity on Google login.");
         var subject = identity.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                      ?? throw new InvalidOperationException("Google não retornou o 'sub' do usuário.");
+                      ?? throw new InvalidOperationException("Google did not return the user's 'sub'.");
         var email = identity.FindFirst(ClaimTypes.Email)?.Value ?? "";
         var name = identity.FindFirst(ClaimTypes.Name)?.Value ?? email;
         var picture = identity.FindFirst("picture")?.Value;
@@ -126,8 +126,8 @@ public static class GoogleAuthentication
         user.AvatarUrl = picture;
         user.LastLoginAt = now;
 
-        // O Google só manda refresh token na PRIMEIRA autorização (ou quando forçamos prompt=consent).
-        // Em logins seguintes ele vem nulo e mantemos o que já está no banco.
+        // Google only sends a refresh token on the FIRST authorization (or when we force prompt=consent).
+        // On later logins it is null and we keep the one already in the database.
         if (!string.IsNullOrEmpty(ctx.RefreshToken))
         {
             var encrypted = protector.Protect(ctx.RefreshToken);
@@ -155,7 +155,7 @@ public static class GoogleAuthentication
 
         await db.SaveChangesAsync(ct);
 
-        // A partir daqui o app identifica o usuário pelo NOSSO id, não pelo do Google.
+        // From here on the app identifies the user by OUR id, not Google's.
         identity.AddClaim(new Claim(AppClaims.UserId, user.Id.ToString()));
     }
 

@@ -1,112 +1,111 @@
-# Configurar o Google Cloud (uma vez só)
+# Setting up Google Cloud (one time only)
 
-O app precisa de um **OAuth Client** do Google para fazer login e ler as agendas.
-Tudo aqui é gratuito. Leva uns 10 minutos.
+The app needs a Google **OAuth Client** to sign in and read calendars.
+Everything here is free. It takes about 10 minutes.
 
-> A interface do console muda de tempos em tempos. Se um nome de menu estiver diferente,
-> procure pelo equivalente: hoje a parte de OAuth fica em **Google Auth Platform**.
+> The console UI changes from time to time. If a menu name is different,
+> look for the equivalent: today the OAuth settings live under **Google Auth Platform**.
 
-## 1. Criar o projeto
+## 1. Create the project
 
-1. Acesse <https://console.cloud.google.com/> com a sua conta Google.
-2. No seletor de projetos (topo), **Novo projeto** → nome `juntos-agenda` → Criar.
-3. Confirme que o projeto novo está selecionado no topo.
+1. Go to <https://console.cloud.google.com/> with your Google account.
+2. In the project picker (top bar), **New project** → name `juntos-agenda` → Create.
+3. Make sure the new project is selected at the top.
 
-## 2. Ativar as APIs
+## 2. Enable the APIs
 
-Em **APIs e serviços → Biblioteca**, procure e clique em **Ativar** em:
+In **APIs & Services → Library**, search for and **Enable**:
 
 - **Google Calendar API**
 - **Google Tasks API**
 
-## 3. Tela de consentimento (Google Auth Platform)
+## 3. Consent screen (Google Auth Platform)
 
-Menu **Google Auth Platform** → **Primeiros passos** (Get started):
+**Google Auth Platform** menu → **Get started**:
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Nome do app | `Juntos` (é o que aparece na tela de permissão) |
-| E-mail de suporte | o seu |
-| Público (Audience) | **Externo** (External) |
-| Contato | o seu e-mail |
+| App name | `Juntos` (shown on the permissions screen) |
+| Support e-mail | yours |
+| Audience | **External** |
+| Contact | your e-mail |
 
-Depois, em **Acesso a dados** (Data Access) → **Adicionar ou remover escopos**, adicione:
+Then, in **Data Access** → **Add or remove scopes**, add:
 
 - `https://www.googleapis.com/auth/calendar.readonly`
 - `https://www.googleapis.com/auth/tasks.readonly`
 
-(`openid`, `email` e `profile` já vêm por padrão.)
+(`openid`, `email` and `profile` are included by default.)
 
-## 4. Usuários de teste e publicação
+## 4. Test users and publishing
 
-**Agora (dev):** em **Público-alvo** → **Usuários de teste** → **Add users**, adicione os dois e-mails
-(o seu e o dela). Isso já basta para o app funcionar enquanto está em *Testando*.
+**Now (dev):** in **Audience** → **Test users** → **Add users**, add every e-mail that will use the app
+(you and your partner). That's enough for the app to work while it is in *Testing*.
 
-**Publicar:** o botão **Publicar app** só fica ativo quando a página **Branding** está completa
-(nome do app, e-mail de suporte, logo opcional e, em **Domínio do app**, links de página inicial
-e política de privacidade + **Domínios autorizados**). Domínio autorizado não aceita `localhost`,
-então na prática a publicação fica para o **M4**, quando tivermos domínio próprio e as páginas
-`/privacidade` e `/termos`.
+**Publishing:** the **Publish app** button only becomes active once the **Branding** page is complete
+(app name, support e-mail, optional logo and, under **App domain**, home page and privacy policy links
++ **Authorized domains**). An authorized domain can't be `localhost`, so in practice publishing waits
+for **M4**, when we have our own domain and the `/privacy` and `/terms` pages.
 
-> Se o botão continuar desativado com só os campos obrigatórios (*) preenchidos, siga em *Testando*.
-> O custo é o que está abaixo.
+> If the button stays disabled with only the required fields (*) filled in, stay in *Testing*.
+> The cost is described below.
 
-**Por que publicar importa:** enquanto o app está em *Testando*, o Google faz o **refresh token expirar em 7 dias**.
-Em dev isso é aceitável: quando expirar, o app mostra a tela "Sua conexão com o Google expirou" e basta
-clicar em **Conectar Google Agenda**. Em uso real seria ruim: se um de vocês não reconectar, a agenda dele
-some para o outro.
+**Why publishing matters:** while the app is in *Testing*, Google makes the **refresh token expire after 7 days**.
+In dev that's acceptable: when it expires, the app shows "Your Google connection expired" and clicking
+**Connect Google Calendar** fixes it. In real use it would be bad: if one of you doesn't reconnect,
+their calendar disappears for the other.
 
-Em produção sem verificação:
+In production without verification:
 
-- aparece a tela **"O Google não verificou este app"**. Clique em **Avançado → Acessar Juntos**.
-  É esperado: o app é de vocês;
-- o limite é de **100 usuários**, mais que suficiente agora;
-- a verificação oficial (gratuita, exige domínio próprio + política de privacidade + vídeo)
-  só será necessária ao abrir para o público.
+- the **"Google hasn't verified this app"** screen shows up. Click **Advanced → Go to Juntos**.
+  That's expected: it's your own app;
+- the limit is **100 users**, more than enough for now;
+- the official verification (free, requires a custom domain + privacy policy + a video)
+  is only needed when opening the app to the public.
 
-## 5. Criar o OAuth Client
+## 5. Create the OAuth Client
 
-**Google Auth Platform → Clientes → Criar cliente**:
+**Google Auth Platform → Clients → Create client**:
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Tipo | **Aplicativo da Web** |
-| Nome | `Juntos (dev)` |
-| URIs de redirecionamento autorizados | `http://localhost:5173/signin-google` |
+| Type | **Web application** |
+| Name | `Juntos (dev)` |
+| Authorized redirect URIs | `http://localhost:5173/signin-google` |
 
-> **Copie o Client Secret na hora** (ou baixe o JSON). O console novo só mostra o secret
-> no momento da criação. Se perder, é preciso gerar outro.
+> **Copy the Client Secret right away** (or download the JSON). The new console only shows the secret
+> at creation time. If you lose it, you have to generate another one.
 
-Por que `5173`? Em dev o navegador fala com o Vite, que repassa `/signin-google` para a API.
-O ASP.NET monta o `redirect_uri` a partir do endereço que o navegador usou.
+Why `5173`? In dev the browser talks to Vite, which proxies `/signin-google` to the API.
+ASP.NET builds the `redirect_uri` from the address the browser used.
 
-Quando publicarmos (M4), vamos adicionar aqui a URL de produção, ex.: `https://seu-dominio/signin-google`.
+When we deploy (M4), we'll add the production URL here, e.g. `https://your-domain/signin-google`.
 
-## 6. Guardar as credenciais (fora do código)
+## 6. Store the credentials (outside the code)
 
-Na raiz do repositório:
+From the repository root:
 
 ```bash
-dotnet user-secrets set "Google:ClientId" "SEU_CLIENT_ID.apps.googleusercontent.com" --project src/Agenda.Api
+dotnet user-secrets set "Google:ClientId" "YOUR_CLIENT_ID.apps.googleusercontent.com" --project src/Agenda.Api
 ```
 
 ```bash
-dotnet user-secrets set "Google:ClientSecret" "SEU_CLIENT_SECRET" --project src/Agenda.Api
+dotnet user-secrets set "Google:ClientSecret" "YOUR_CLIENT_SECRET" --project src/Agenda.Api
 ```
 
-O **user-secrets** guarda os valores num arquivo do seu perfil do Windows
-(`%APPDATA%\Microsoft\UserSecrets\`), fora da pasta do projeto, então nunca vão parar no Git.
-Em produção o mesmo papel será do **Azure Key Vault**.
+**user-secrets** keeps the values in a file in your Windows profile
+(`%APPDATA%\Microsoft\UserSecrets\`), outside the project folder, so they never end up in Git.
+In production, **Azure Key Vault** plays the same role.
 
-## 7. Testar
+## 7. Test it
 
-Siga o "Como rodar" do [README](../README.md) e faça login com as duas contas (a sua e a dela).
+Follow "Running locally" in the [README](../README.md) and sign in with both accounts.
 
-## Problemas comuns
+## Common problems
 
-| Erro | Causa provável |
+| Error | Likely cause |
 |---|---|
-| `redirect_uri_mismatch` | A URI cadastrada não é exatamente `http://localhost:5173/signin-google` (atenção a `https`, porta e barra no fim). |
-| `access_denied` / app bloqueado | O app ainda está em *Teste* e a conta não está em "Usuários de teste". Publique (passo 4). |
-| A API não sobe: "Google:ClientId e Google:ClientSecret não configurados" | Faltou o passo 6. |
-| Tela "Falta conectar sua agenda" depois do login | Você desmarcou a permissão da agenda na tela do Google. Clique em "Conectar Google Agenda" e deixe marcada. |
+| `redirect_uri_mismatch` | The registered URI isn't exactly `http://localhost:5173/signin-google` (watch out for `https`, the port and a trailing slash), or Vite's proxy is rewriting the Host (`changeOrigin` must be `false`). |
+| `access_denied` / app blocked | The app is in *Testing* and the account isn't under "Test users". Add it (step 4). |
+| The API doesn't start: "Google:ClientId and Google:ClientSecret are not configured" | Step 6 was skipped. |
+| "Your calendar isn't connected yet" after signing in | The calendar permission was unchecked on Google's screen. Click "Connect Google Calendar" and keep it checked. |

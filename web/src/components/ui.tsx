@@ -1,4 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import { currentLanguage, LANGUAGES } from '../i18n'
 import { CloseIcon } from './icons'
 
 export const buttonPrimary =
@@ -20,6 +22,8 @@ export function Modal({
   children?: ReactNode
   footer?: ReactNode
 }) {
+  const { t } = useTranslation()
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
@@ -35,7 +39,7 @@ export function Modal({
         aria-label={title}
         className="relative flex max-h-[90vh] w-full max-w-md flex-col rounded-3xl border border-line bg-surface p-6 shadow-2xl"
       >
-        <button onClick={onClose} className="absolute top-4 right-4 rounded-lg p-1.5 text-muted hover:bg-surface-2" aria-label="Fechar">
+        <button onClick={onClose} className="absolute top-4 right-4 rounded-lg p-1.5 text-muted hover:bg-surface-2" aria-label={t('common.close')}>
           <CloseIcon width={16} height={16} />
         </button>
         <h2 className="pr-8 text-lg font-semibold tracking-tight">{title}</h2>
@@ -47,7 +51,56 @@ export function Modal({
   )
 }
 
-/** Checkbox em que a própria cor (da agenda ou da pessoa) vira o indicador. */
+/** Segmented control (pill buttons). Used for views, sharing options and language. */
+export function Segmented<T extends string | null>({
+  label,
+  value,
+  options,
+  onChange,
+  size = 'md',
+}: {
+  label: string
+  value: T
+  options: readonly { value: T; label: string }[]
+  onChange: (value: T) => void
+  size?: 'sm' | 'md'
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className="flex shrink-0 rounded-full bg-surface-2 p-0.5">
+      {options.map((o) => {
+        const active = o.value === value
+        return (
+          <button
+            key={o.label}
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(o.value)}
+            className={`${size === 'sm' ? 'h-6 px-2.5 text-[11px]' : 'h-7 px-3 text-xs'} rounded-full font-medium transition ${
+              active ? 'bg-surface text-ink shadow-sm' : 'text-muted hover:text-ink'
+            }`}
+          >
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+export function LanguageSwitch() {
+  const { t, i18n } = useTranslation()
+  return (
+    <Segmented
+      size="sm"
+      label={t('common.language')}
+      value={currentLanguage()}
+      options={LANGUAGES.map((l) => ({ value: l.code, label: l.label }))}
+      onChange={(code) => void i18n.changeLanguage(code)}
+    />
+  )
+}
+
+/** Checkbox where the color itself (of the calendar or the person) is the indicator. */
 export function ColorCheck({ checked, color }: { checked: boolean; color: string }) {
   return (
     <span

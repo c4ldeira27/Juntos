@@ -5,7 +5,7 @@ public enum AgendaItemKind
     Event,
     Task,
 
-    /// <summary>Bloco "Ocupado", sem título: evento privado ou agenda compartilhada só como disponibilidade.</summary>
+    /// <summary>"Busy" block without a title: a private event or a calendar shared as availability only.</summary>
     Busy,
 }
 
@@ -22,12 +22,13 @@ public enum SourceKind
 }
 
 /// <summary>
-/// Formato normalizado que o front recebe. O front não conhece o Google: se um dia
-/// entrar Outlook, só o backend muda.
+/// Normalized shape sent to the front end. The front end doesn't know about Google: if Outlook
+/// ever comes in, only the back end changes. It also carries no UI text (the front end translates).
 /// </summary>
-/// <param name="Start">Eventos com hora: ISO 8601 em UTC. Dia inteiro: "yyyy-MM-dd".</param>
-/// <param name="End">Exclusivo, como no Google e no FullCalendar (evento do dia 10 termina em "11").</param>
-/// <param name="MemberId">Dono do item na agenda do grupo (define a cor). Nulo na agenda pessoal.</param>
+/// <param name="Title">Null for "busy" items and for events/tasks without a title (the front end shows a localized placeholder).</param>
+/// <param name="Start">Timed events: ISO 8601 in UTC. All-day: "yyyy-MM-dd".</param>
+/// <param name="End">Exclusive, as in Google and FullCalendar (an event on the 10th ends on "11").</param>
+/// <param name="MemberId">Owner of the item in the group calendar (defines the color).</param>
 public sealed record AgendaItem(
     string Id,
     string SourceId,
@@ -41,11 +42,14 @@ public sealed record AgendaItem(
 
 public sealed record AgendaResponse(IReadOnlyList<AgendaItem> Items, IReadOnlyList<string> FailedSources);
 
-/// <param name="UnavailableMembers">Membros cuja conexão com o Google expirou: a agenda deles não pôde ser lida.</param>
+/// <param name="UnavailableMembers">Members whose Google connection expired: their calendars could not be read.</param>
 public sealed record GroupAgendaResponse(
     IReadOnlyList<AgendaItem> Items,
     IReadOnlyList<string> FailedSources,
     IReadOnlyList<Guid> UnavailableMembers);
+
+/// <param name="Name">Null when Google has no name for it (the front end shows a localized placeholder).</param>
+public sealed record SourceDto(string Id, SourceKind Kind, string? Name, bool Primary, string? GoogleColor);
 
 public static class AgendaRange
 {
@@ -54,17 +58,15 @@ public static class AgendaRange
     public static Dictionary<string, string[]> Validate(DateTimeOffset from, DateTimeOffset to)
     {
         var errors = new Dictionary<string, string[]>();
-        if (to <= from) errors["to"] = ["'to' deve ser maior que 'from'."];
-        else if (to - from > Max) errors["to"] = [$"O intervalo máximo é de {Max.TotalDays} dias."];
+        if (to <= from) errors["to"] = ["'to' must be greater than 'from'."];
+        else if (to - from > Max) errors["to"] = [$"The maximum range is {Max.TotalDays} days."];
         return errors;
     }
 }
 
-public sealed record SourceDto(string Id, SourceKind Kind, string Name, bool Primary, string? GoogleColor);
-
 /// <summary>
-/// Identificador de fonte no formato "cal:{id}" ou "tasks:{id}".
-/// O prefixo diz qual API do Google chamar (Calendar ou Tasks).
+/// Source identifier in the form "cal:{id}" or "tasks:{id}".
+/// The prefix tells which Google API to call (Calendar or Tasks).
 /// </summary>
 public readonly record struct SourceId(SourceKind Kind, string GoogleId)
 {

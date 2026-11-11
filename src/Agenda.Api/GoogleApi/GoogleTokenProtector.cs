@@ -3,12 +3,12 @@ using Microsoft.AspNetCore.DataProtection;
 namespace Agenda.Api.GoogleApi;
 
 /// <summary>
-/// Criptografa o refresh token antes de ir para o banco. Se alguém vazar um backup do banco,
-/// não consegue usar os tokens sem as chaves (que em produção serão protegidas pelo Key Vault).
+/// Encrypts the refresh token before it goes to the database. If a database backup leaks,
+/// the tokens are useless without the keys (which, in production, will be protected by Key Vault).
 /// </summary>
 public sealed class GoogleTokenProtector(IDataProtectionProvider provider)
 {
-    // O "purpose" isola esta chave: um valor protegido aqui não pode ser aberto por outro protector.
+    // The "purpose" isolates this key: a value protected here cannot be opened by another protector.
     private readonly IDataProtector _protector = provider.CreateProtector("Agenda.GoogleRefreshToken.v1");
 
     public string Protect(string refreshToken) => _protector.Protect(refreshToken);

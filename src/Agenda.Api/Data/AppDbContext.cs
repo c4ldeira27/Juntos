@@ -14,8 +14,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<SharedSource> SharedSources => Set<SharedSource>();
 
     /// <summary>
-    /// Chaves do ASP.NET Data Protection. Ficam no banco porque o container é descartável:
-    /// se as chaves morressem junto com ele, os refresh tokens criptografados virariam lixo a cada deploy.
+    /// ASP.NET Data Protection keys. They live in the database because the container is disposable:
+    /// if the keys died with it, the encrypted refresh tokens would become garbage on every deploy.
     /// </summary>
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
@@ -53,8 +53,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         modelBuilder.Entity<GroupMember>(e =>
         {
             e.HasKey(x => new { x.GroupId, x.UserId });
-            // Regra do MVP: cada pessoa está em no máximo 1 grupo. O índice único garante isso
-            // até contra duas requisições simultâneas (o if no código sozinho não garantiria).
+            // MVP rule: each person belongs to at most 1 group. The unique index enforces it
+            // even against two concurrent requests (an "if" in code alone would not).
             e.HasIndex(x => x.UserId).IsUnique();
             e.Property(x => x.Role).HasConversion<string>().HasMaxLength(16);
             e.Property(x => x.Color).HasMaxLength(9);
@@ -74,7 +74,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         modelBuilder.Entity<SharedSource>(e =>
         {
             e.HasKey(x => x.Id);
-            // 255 caracteres cobrem os ids de agenda do Google e mantêm o índice abaixo do limite de 1700 bytes do SQL Server.
+            // 255 chars fit Google calendar ids and keep the index under SQL Server's 1700-byte key limit.
             e.Property(x => x.GoogleId).HasMaxLength(255);
             e.Property(x => x.DisplayName).HasMaxLength(200);
             e.Property(x => x.Kind).HasConversion<string>().HasMaxLength(16);

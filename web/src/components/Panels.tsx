@@ -1,9 +1,10 @@
+import { useTranslation } from 'react-i18next'
 import { loginUrl, type Group, type Me, type Source } from '../lib/api'
 import { AlertIcon } from './icons'
 import { SidebarSection } from './Sidebar'
 import { Avatar, buttonPrimary, buttonSecondary, ColorCheck } from './ui'
 
-// ===================== Modo pessoal (sem grupo) =====================
+// ===================== Personal mode (no group) =====================
 
 interface PersonalPanelProps {
   me: Me
@@ -17,6 +18,7 @@ interface PersonalPanelProps {
 }
 
 export function PersonalPanel({ me, sources, loading, selected, failed, colorFor, onToggle, onCreateGroup }: PersonalPanelProps) {
+  const { t } = useTranslation()
   const calendars = sources?.filter((s) => s.kind === 'calendar') ?? []
   const taskLists = sources?.filter((s) => s.kind === 'taskList') ?? []
   const rowProps = { selected, failed, colorFor, onToggle }
@@ -24,37 +26,35 @@ export function PersonalPanel({ me, sources, loading, selected, failed, colorFor
   return (
     <>
       <div className="rounded-2xl border border-line bg-surface p-4">
-        <p className="text-sm font-semibold">Melhor a dois</p>
-        <p className="mt-1 text-xs text-pretty text-muted">
-          Crie um grupo e convide sua pessoa para ver as agendas de vocês lado a lado.
-        </p>
+        <p className="text-sm font-semibold">{t('personal.ctaTitle')}</p>
+        <p className="mt-1 text-xs text-pretty text-muted">{t('personal.ctaBody')}</p>
         <button onClick={onCreateGroup} className={`${buttonPrimary} mt-3 h-9 w-full`}>
-          Criar grupo
+          {t('personal.createGroup')}
         </button>
       </div>
 
       {loading ? (
-        <div className="space-y-2 px-2" aria-label="Carregando agendas">
+        <div className="space-y-2 px-2" aria-label={t('personal.loadingCalendars')}>
           {[0, 1, 2].map((i) => (
             <div key={i} className="h-7 animate-pulse rounded-lg bg-surface-2" />
           ))}
         </div>
       ) : (
         <>
-          <SidebarSection title="Agendas">
+          <SidebarSection title={t('personal.calendars')}>
             <SourceRows items={calendars} {...rowProps} />
           </SidebarSection>
           {me.google.canReadTasks ? (
             taskLists.length > 0 && (
-              <SidebarSection title="Tarefas">
+              <SidebarSection title={t('personal.tasks')}>
                 <SourceRows items={taskLists} {...rowProps} />
               </SidebarSection>
             )
           ) : (
             <p className="px-2 text-xs text-muted">
-              Tarefas desativadas.{' '}
+              {t('personal.tasksDisabled')}{' '}
               <a href={loginUrl(true)} className="font-medium text-accent hover:underline">
-                Permitir acesso
+                {t('personal.allowAccess')}
               </a>
             </p>
           )}
@@ -64,7 +64,14 @@ export function PersonalPanel({ me, sources, loading, selected, failed, colorFor
   )
 }
 
-function SourceRows({ items, selected, failed, colorFor, onToggle }: Omit<PersonalPanelProps, 'me' | 'sources' | 'loading' | 'onCreateGroup'> & { items: Source[] }) {
+function SourceRows({
+  items,
+  selected,
+  failed,
+  colorFor,
+  onToggle,
+}: Pick<PersonalPanelProps, 'selected' | 'failed' | 'colorFor' | 'onToggle'> & { items: Source[] }) {
+  const { t } = useTranslation()
   return (
     <ul className="space-y-0.5">
       {items.map((source) => {
@@ -74,9 +81,9 @@ function SourceRows({ items, selected, failed, colorFor, onToggle }: Omit<Person
             <label className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-sm transition hover:bg-surface-2">
               <input type="checkbox" className="peer sr-only" checked={checked} onChange={() => onToggle(source.id)} />
               <ColorCheck checked={checked} color={colorFor(source.id)} />
-              <span className="min-w-0 flex-1 truncate">{source.name}</span>
+              <span className="min-w-0 flex-1 truncate">{source.name ?? t('personal.untitledList')}</span>
               {failed.includes(source.id) && (
-                <span title="Não foi possível carregar esta agenda" className="text-amber-500">
+                <span title={t('personal.sourceFailed')} className="text-amber-500">
                   <AlertIcon width={14} height={14} />
                 </span>
               )}
@@ -88,7 +95,7 @@ function SourceRows({ items, selected, failed, colorFor, onToggle }: Omit<Person
   )
 }
 
-// ===================== Modo grupo =====================
+// ===================== Group mode =====================
 
 interface GroupPanelProps {
   group: Group
@@ -97,10 +104,10 @@ interface GroupPanelProps {
   onToggleMember: (userId: string) => void
   onInvite: () => void
   onSharing: () => void
-  onLeave: () => void
 }
 
-export function GroupPanel({ group, hidden, unavailable, onToggleMember, onInvite, onSharing, onLeave }: GroupPanelProps) {
+export function GroupPanel({ group, hidden, unavailable, onToggleMember, onInvite, onSharing }: GroupPanelProps) {
+  const { t } = useTranslation()
   const alone = group.members.length === 1
   const canInvite = group.members.length < group.maxMembers
 
@@ -109,9 +116,10 @@ export function GroupPanel({ group, hidden, unavailable, onToggleMember, onInvit
       <SidebarSection
         title={group.name}
         action={
-          canInvite && !alone && (
+          canInvite &&
+          !alone && (
             <button onClick={onInvite} className="text-xs font-medium text-accent hover:underline">
-              + Convidar
+              {t('group.invite')}
             </button>
           )
         }
@@ -121,21 +129,21 @@ export function GroupPanel({ group, hidden, unavailable, onToggleMember, onInvit
             const visible = !hidden.has(m.userId)
             const disconnected = m.needsReconnect || unavailable.includes(m.userId)
             const status = disconnected
-              ? 'Precisa reconectar o Google'
+              ? t('group.needsReconnect')
               : m.sharedSources === 0
-                ? 'Ainda não compartilhou agendas'
-                : `${m.sharedSources} ${m.sharedSources === 1 ? 'agenda' : 'agendas'}`
+                ? t('group.notShared')
+                : t('group.calendars', { count: m.sharedSources })
 
             return (
               <li key={m.userId}>
-                {/* Clicar na pessoa mostra/esconde os eventos dela: filtro rápido "só eu / só ela / os dois". */}
+                {/* Clicking a person shows/hides their events: quick "just me / just them / both" filter. */}
                 <label className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 transition hover:bg-surface-2">
                   <input type="checkbox" className="peer sr-only" checked={visible} onChange={() => onToggleMember(m.userId)} />
                   <Avatar name={m.name} url={m.avatarUrl} color={m.color} size={30} />
                   <div className={`min-w-0 flex-1 transition ${visible ? '' : 'opacity-40'}`}>
                     <div className="truncate text-sm font-medium">
                       {m.name}
-                      {m.isMe && <span className="font-normal text-muted"> (você)</span>}
+                      {m.isMe && <span className="font-normal text-muted"> {t('group.you')}</span>}
                     </div>
                     <div className={`flex items-center gap-1 truncate text-xs ${disconnected ? 'text-amber-500' : 'text-muted'}`}>
                       {disconnected && <AlertIcon width={12} height={12} />}
@@ -152,23 +160,26 @@ export function GroupPanel({ group, hidden, unavailable, onToggleMember, onInvit
 
       {alone && (
         <div className="rounded-2xl border border-line bg-surface p-4">
-          <p className="text-sm font-semibold">Falta sua pessoa</p>
-          <p className="mt-1 text-xs text-pretty text-muted">
-            Gere um link de convite. Ele vale por 48 horas e funciona uma única vez.
-          </p>
+          <p className="text-sm font-semibold">{t('group.aloneTitle')}</p>
+          <p className="mt-1 text-xs text-pretty text-muted">{t('group.aloneBody')}</p>
           <button onClick={onInvite} className={`${buttonPrimary} mt-3 h-9 w-full`}>
-            Convidar
+            {t('group.inviteButton')}
           </button>
         </div>
       )}
 
       <button onClick={onSharing} className={`${buttonSecondary} h-9 w-full`}>
-        O que eu compartilho
-      </button>
-
-      <button onClick={onLeave} className="mt-auto self-start px-2 text-xs text-muted underline-offset-4 hover:text-ink hover:underline">
-        Sair do grupo
+        {t('group.sharingButton')}
       </button>
     </>
+  )
+}
+
+export function LeaveGroupButton({ onLeave }: { onLeave: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <button onClick={onLeave} className="text-xs text-muted underline-offset-4 hover:text-ink hover:underline">
+      {t('group.leave')}
+    </button>
   )
 }
