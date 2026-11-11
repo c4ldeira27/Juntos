@@ -22,6 +22,8 @@ RUN dotnet publish src/Agenda.Api/Agenda.Api.csproj -c Release -o /app --no-rest
 
 # ---------- 3. Runtime ----------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+# Links the image in GitHub Container Registry (ghcr.io) to the repository page.
+LABEL org.opencontainers.image.source="https://github.com/c4ldeira27/Juntos"
 WORKDIR /app
 COPY --from=build /app ./
 # The React build becomes wwwroot: the same container serves the API and the site.

@@ -8,6 +8,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.Extensions.AspNetCore.DataProtection.Keys" Version="1.6.5" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="Google.Apis.Calendar.v3" Version="1.78.0.4320" />
     <PackageReference Include="Google.Apis.Tasks.v1" Version="1.78.0.4322" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.15" />
