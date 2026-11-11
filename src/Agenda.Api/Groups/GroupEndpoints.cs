@@ -75,28 +75,28 @@ public static class GroupEndpoints
     {
         if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
 
-        var member = await db.GroupMembers.SingleOrDefaultAsync(m => m.GroupId == groupId && m.UserId == userId, ct);
-        if (member is null) return Results.NotFound();
-
         // Transaction: the three operations happen together or not at all.
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-
-        db.GroupMembers.Remove(member);
-        await db.SaveChangesAsync(ct);
-
-        var remaining = await db.GroupMembers.Where(m => m.GroupId == groupId).OrderBy(m => m.JoinedAt).ToListAsync(ct);
-        if (remaining.Count == 0)
+        return await InTransactionAsync(db, async () =>
         {
-            await db.Groups.Where(g => g.Id == groupId).ExecuteDeleteAsync(ct);
-        }
-        else if (remaining.All(m => m.Role != GroupRole.Owner))
-        {
-            remaining[0].Role = GroupRole.Owner;
+            var member = await db.GroupMembers.SingleOrDefaultAsync(m => m.GroupId == groupId && m.UserId == userId, ct);
+            if (member is null) return Results.NotFound();
+
+            db.GroupMembers.Remove(member);
             await db.SaveChangesAsync(ct);
-        }
 
-        await tx.CommitAsync(ct);
-        return Results.NoContent();
+            var remaining = await db.GroupMembers.Where(m => m.GroupId == groupId).OrderBy(m => m.JoinedAt).ToListAsync(ct);
+            if (remaining.Count == 0)
+            {
+                await db.Groups.Where(g => g.Id == groupId).ExecuteDeleteAsync(ct);
+            }
+            else if (remaining.All(m => m.Role != GroupRole.Owner))
+            {
+                remaining[0].Role = GroupRole.Owner;
+                await db.SaveChangesAsync(ct);
+            }
+
+            return Results.NoContent();
+        }, ct);
     }
 
     // ---------------- Invites ----------------
@@ -162,31 +162,33 @@ public static class GroupEndpoints
                 return Problem(StatusCodes.Status409Conflict, "group_full", "This group is full.");
         }
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-
-        // "Claims" the invite atomically: the UPDATE only affects the row if it hasn't been used yet.
-        // If two people accept at the same time, only one gets 1 affected row.
-        var claimed = await db.GroupInvites
-            .Where(i => i.Id == invite.InviteId && i.UsedAt == null)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(i => i.UsedAt, now)
-                .SetProperty(i => i.UsedByUserId, userId), ct);
-        if (claimed == 0)
-            return Problem(StatusCodes.Status410Gone, "invite_invalid", "This invite has expired or was already used.");
-
-        var usedColors = await db.GroupMembers.Where(m => m.GroupId == invite.GroupId).Select(m => m.Color).ToListAsync(ct);
-        db.GroupMembers.Add(new GroupMember
+        var joined = await InTransactionAsync(db, async () =>
         {
-            GroupId = invite.GroupId,
-            UserId = userId,
-            Role = GroupRole.Member,
-            Color = GroupRules.NextColor(usedColors),
-            JoinedAt = now,
-        });
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
+            // "Claims" the invite atomically: the UPDATE only affects the row if it hasn't been used yet.
+            // If two people accept at the same time, only one gets 1 affected row.
+            var claimed = await db.GroupInvites
+                .Where(i => i.Id == invite.InviteId && i.UsedAt == null)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(i => i.UsedAt, now)
+                    .SetProperty(i => i.UsedByUserId, userId), ct);
+            if (claimed == 0) return false;
 
-        return Results.Ok(await LoadGroupAsync(db, invite.GroupId, userId, ct));
+            var usedColors = await db.GroupMembers.Where(m => m.GroupId == invite.GroupId).Select(m => m.Color).ToListAsync(ct);
+            db.GroupMembers.Add(new GroupMember
+            {
+                GroupId = invite.GroupId,
+                UserId = userId,
+                Role = GroupRole.Member,
+                Color = GroupRules.NextColor(usedColors),
+                JoinedAt = now,
+            });
+            await db.SaveChangesAsync(ct);
+            return true;
+        }, ct);
+
+        return joined
+            ? Results.Ok(await LoadGroupAsync(db, invite.GroupId, userId, ct))
+            : Problem(StatusCodes.Status410Gone, "invite_invalid", "This invite has expired or was already used.");
     }
 
     private sealed record InviteLookup(Guid InviteId, Guid GroupId, string GroupName, string? InvitedBy, DateTimeOffset ExpiresAt, string Status);
@@ -259,9 +261,7 @@ public static class GroupEndpoints
         Guid groupId, UpdateSharingRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken ct)
     {
         if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
-
-        var member = await db.GroupMembers.SingleOrDefaultAsync(m => m.GroupId == groupId && m.UserId == userId, ct);
-        if (member is null) return Results.NotFound();
+        if (!await IsMemberAsync(db, groupId, userId, ct)) return Results.NotFound();
 
         var choices = request.Sources ?? [];
         if (choices.Count > GroupRules.MaxSharedSources)
@@ -293,14 +293,17 @@ public static class GroupEndpoints
         }
 
         // Replacing everything is simpler (and less bug-prone) than computing what changed.
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await db.SharedSources.Where(s => s.GroupId == groupId && s.UserId == userId).ExecuteDeleteAsync(ct);
-        db.SharedSources.AddRange(rows);
-        member.SharingConfiguredAt = time.GetUtcNow();
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
+        return await InTransactionAsync(db, async () =>
+        {
+            var member = await db.GroupMembers.SingleOrDefaultAsync(m => m.GroupId == groupId && m.UserId == userId, ct);
+            if (member is null) return Results.NotFound(); // left the group in the meantime
 
-        return Results.NoContent();
+            await db.SharedSources.Where(s => s.GroupId == groupId && s.UserId == userId).ExecuteDeleteAsync(ct);
+            db.SharedSources.AddRange(rows);
+            member.SharingConfiguredAt = time.GetUtcNow();
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        }, ct);
     }
 
     // ---------------- Group agenda ----------------
@@ -321,6 +324,22 @@ public static class GroupEndpoints
     }
 
     // ---------------- Helpers ----------------
+
+    /// <summary>
+    /// Runs <paramref name="work"/> in a transaction inside EF's execution strategy.
+    /// With EnableRetryOnFailure, EF refuses manual transactions outside the strategy: if the connection drops
+    /// mid-way it must retry the WHOLE unit, not just the last statement. Each attempt starts with a clean
+    /// change tracker so leftovers from a failed attempt (entities marked Added/Deleted) aren't replayed.
+    /// </summary>
+    private static Task<T> InTransactionAsync<T>(AppDbContext db, Func<Task<T>> work, CancellationToken ct) =>
+        db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            var result = await work();
+            await tx.CommitAsync(ct);
+            return result;
+        });
 
     private static Task<bool> IsMemberAsync(AppDbContext db, Guid groupId, Guid userId, CancellationToken ct) =>
         db.GroupMembers.AnyAsync(m => m.GroupId == groupId && m.UserId == userId, ct);

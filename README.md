@@ -31,7 +31,7 @@ tests/Agenda.Api.Tests/
 web/
   src/i18n/        translations (en is the source of truth; pt-BR must match its keys)
   src/components/  screens, dialogs, calendar
-docs/              guides (Google Cloud setup)
+docs/              guides (Google Cloud setup, Azure deploy)
 Dockerfile         multi-stage build: React + .NET → one image
 docker-compose.yml local SQL Server
 ```
@@ -70,6 +70,19 @@ Prerequisites: .NET SDK 10, Node 24, Docker Desktop.
    ```
 
 6. Open <http://localhost:5173>.
+
+## Deploying
+
+See [docs/deploy-azure.md](docs/deploy-azure.md): Azure Container Apps + Azure SQL (free offer) + Key Vault,
+with a managed identity and no passwords. Production settings (environment variables):
+
+| Variable | Purpose |
+|---|---|
+| `ConnectionStrings__Default` | Azure SQL with `Authentication=Active Directory Managed Identity` |
+| `Google__ClientId` / `Google__ClientSecret` | OAuth client (the secret comes from Key Vault) |
+| `DataProtection__KeyVaultKeyId` | Key Vault key that wraps the Data Protection keys (optional locally) |
+| `AZURE_CLIENT_ID` | Client id of the user-assigned managed identity |
+| `Database__MigrateOnStartup` | `true` while there's a single replica (M4); migrations move to CI/CD in M5 |
 
 ## Useful commands
 

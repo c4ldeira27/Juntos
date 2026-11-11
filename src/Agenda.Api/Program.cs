@@ -6,6 +6,7 @@ using Agenda.Api.GoogleApi;
 using Agenda.Api.Groups;
 using Agenda.Api.Infrastructure;
 using Agenda.Api.Schedule;
+using Azure.Identity;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
@@ -14,12 +15,22 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ---------- Data ----------
 builder.Services.AddDbContext<AppDbContext>(o =>
-    o.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
+    o.UseSqlServer(builder.Configuration.GetConnectionString("Default"), sql =>
+        // Azure SQL has transient failures (failovers, throttling) and the free serverless tier
+        // auto-pauses: the first query after a pause fails with 40613 while the database resumes.
+        // EF retries those errors with exponential backoff instead of returning a 500.
+        // Side effect: explicit transactions must run inside the execution strategy (see GroupEndpoints).
+        sql.EnableRetryOnFailure(maxRetryCount: 6, maxRetryDelay: TimeSpan.FromSeconds(15), errorNumbersToAdd: null)));
 
-builder.Services.AddDataProtection()
+var dataProtection = builder.Services.AddDataProtection()
     .SetApplicationName("Agenda")
     .PersistKeysToDbContext<AppDbContext>();
-// TODO(M4): .ProtectKeysWithAzureKeyVault(...) so the keys aren't stored in plain text in the database.
+
+// In Azure, the Data Protection keys are encrypted with a Key Vault key ("envelope encryption"):
+// the database stores the keys wrapped, so a database leak alone can't decrypt the refresh tokens.
+// The app reaches Key Vault with its managed identity (DefaultAzureCredential reads AZURE_CLIENT_ID): no secret in config.
+if (builder.Configuration["DataProtection:KeyVaultKeyId"] is { Length: > 0 } keyVaultKeyId)
+    dataProtection.ProtectKeysWithAzureKeyVault(new Uri(keyVaultKeyId), new DefaultAzureCredential());
 
 // ---------- Google ----------
 builder.Services.AddMemoryCache();
@@ -74,10 +85,11 @@ app.MapGroupEndpoints();
 app.MapFallback("/api/{**path}", () => Results.NotFound());
 app.MapFallbackToFile("index.html");
 
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
 {
-    // In dev, migrations are applied on startup. In production this becomes a pipeline step (M4),
-    // because several replicas starting together would all try to migrate at the same time.
+    // Dev always migrates on startup. In Azure it's opt-in (Database__MigrateOnStartup=true) and only safe
+    // while there's a single replica: several replicas starting together would all try to migrate.
+    // M5 moves this to a pipeline step (EF migration bundle) and turns the flag off.
     using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
 }
