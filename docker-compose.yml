@@ -1,0 +1,24 @@
+# Infra local de desenvolvimento. A API e o front rodam fora do Docker (dotnet run / npm run dev)
+# para ter hot reload e debugger; aqui fica só o que é "serviço": o banco.
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: agenda-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Crie o arquivo .env a partir do .env.example}
+    # Porta 14333 no host para não brigar com um SQL Server instalado na máquina.
+    ports:
+      - "14333:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  sqldata:
