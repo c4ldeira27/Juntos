@@ -31,13 +31,14 @@ interface EventMeta {
 
 interface CalendarViewProps {
   items: AgendaItem[]
-  colorFor: (sourceId: string) => string
+  /** Pessoal: cor da agenda. Grupo: cor da pessoa. */
+  colorOf: (item: AgendaItem) => string
   fetching: boolean
   onRangeChange: (range: DateRange) => void
   onOpenSidebar: () => void
 }
 
-export function CalendarView({ items, colorFor, fetching, onRangeChange, onOpenSidebar }: CalendarViewProps) {
+export function CalendarView({ items, colorOf, fetching, onRangeChange, onOpenSidebar }: CalendarViewProps) {
   const calendarRef = useRef<FullCalendar>(null)
   const isMobile = useMediaQuery('(max-width: 767px)')
   // No celular a grade semanal fica ilegível: começa na lista.
@@ -47,7 +48,7 @@ export function CalendarView({ items, colorFor, fetching, onRangeChange, onOpenS
   const events = useMemo<EventInput[]>(
     () =>
       items.map((item) => {
-        const color = colorFor(item.sourceId)
+        const color = colorOf(item)
         return {
           id: item.id,
           title: item.title ?? 'Ocupado',
@@ -59,7 +60,7 @@ export function CalendarView({ items, colorFor, fetching, onRangeChange, onOpenS
           extendedProps: { kind: item.kind, color, location: item.location } satisfies EventMeta,
         }
       }),
-    [items, colorFor],
+    [items, colorOf],
   )
 
   const calendar = () => calendarRef.current?.getApi()

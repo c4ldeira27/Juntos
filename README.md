@@ -87,12 +87,27 @@ docker build -t agenda:local .
 | GET | `/api/me` | Usuário logado + status da conexão com o Google |
 | GET | `/api/me/sources` | Agendas e listas de tarefas da conta |
 | GET | `/api/me/agenda?from=&to=&source=` | Itens normalizados no intervalo (`source` repetido: `cal:{id}`, `tasks:{id}`) |
+| GET | `/api/groups/current` | Grupo do usuário (204 se não estiver em nenhum) |
+| POST | `/api/groups` | Cria um grupo (regra do MVP: 1 grupo por pessoa) |
+| POST | `/api/groups/{id}/invites` | Gera link de convite (uso único, 48h) |
+| DELETE | `/api/groups/{id}/members/me` | Sai do grupo (dono sai → o membro mais antigo assume; último sai → grupo apagado) |
+| GET/PUT | `/api/groups/{id}/sharing` | Minhas agendas e como cada uma aparece no grupo (Detalhes / Só ocupado / Oculta) |
+| GET | `/api/groups/{id}/agenda?from=&to=` | Agenda unificada, lida com o token de cada membro e filtrada pela privacidade de cada um |
+| GET | `/api/invites/{token}` | Prévia do convite |
+| POST | `/api/invites/{token}/accept` | Aceita o convite (idempotente) |
 | GET | `/health` | Health check |
+
+## Testes
+
+- **Unidade**: regras de exibição (`AgendaMapper`), cores, tokens de convite.
+- **Integração** (`tests/.../Integration`): a API roda em memória (`WebApplicationFactory`) contra um
+  SQL Server descartável criado pelo **Testcontainers**, então o Docker precisa estar aberto.
+  O login do Google é trocado por um esquema de teste (header `X-Test-User`).
 
 ## Roadmap
 
 - [x] **M1**: login com Google, conexão, listagem e visualização das **próprias** agendas
-- [ ] **M2**: grupos, convite por link, compartilhamento por agenda (Detalhes / Só ocupado)
-- [ ] **M3**: agenda unificada do grupo, com cor por pessoa
+- [x] **M2**: grupos, convite por link, compartilhamento por agenda (Detalhes / Só ocupado)
+- [x] **M3**: agenda unificada do grupo, com cor por pessoa
 - [ ] **M4**: deploy manual no Azure com domínio
 - [ ] **M5**: Bicep, CI/CD (GitHub Actions + OIDC), observabilidade, privacidade/exclusão de conta

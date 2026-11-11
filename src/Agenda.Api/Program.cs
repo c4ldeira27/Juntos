@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Agenda.Api.Auth;
 using Agenda.Api.Data;
 using Agenda.Api.GoogleApi;
+using Agenda.Api.Groups;
 using Agenda.Api.Infrastructure;
 using Agenda.Api.Schedule;
 using Microsoft.AspNetCore.DataProtection;
@@ -67,6 +68,7 @@ app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapMeEndpoints();
+app.MapGroupEndpoints();
 
 // Rotas /api desconhecidas devem dar 404, não devolver o index.html do React.
 app.MapFallback("/api/{**path}", () => Results.NotFound());
@@ -81,3 +83,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.Run();
+
+// Expõe a classe Program para os testes de integração (WebApplicationFactory<Program>).
+public partial class Program;

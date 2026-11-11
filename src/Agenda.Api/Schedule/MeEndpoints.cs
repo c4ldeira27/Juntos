@@ -13,7 +13,6 @@ public sealed record GoogleStatusDto(string Status, bool CanReadTasks);
 
 public static class MeEndpoints
 {
-    private static readonly TimeSpan MaxRange = TimeSpan.FromDays(62);
     private const int MaxSources = 30;
 
     public static void MapMeEndpoints(this IEndpointRouteBuilder app)
@@ -55,9 +54,7 @@ public static class MeEndpoints
         {
             if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
 
-            var errors = new Dictionary<string, string[]>();
-            if (to <= from) errors["to"] = ["'to' deve ser maior que 'from'."];
-            else if (to - from > MaxRange) errors["to"] = [$"O intervalo máximo é de {MaxRange.TotalDays} dias."];
+            var errors = AgendaRange.Validate(from, to);
             if (source is { Length: > MaxSources }) errors["source"] = [$"No máximo {MaxSources} fontes por consulta."];
 
             var parsed = new List<SourceId>();

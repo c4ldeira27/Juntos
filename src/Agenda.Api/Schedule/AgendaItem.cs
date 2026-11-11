@@ -27,6 +27,7 @@ public enum SourceKind
 /// </summary>
 /// <param name="Start">Eventos com hora: ISO 8601 em UTC. Dia inteiro: "yyyy-MM-dd".</param>
 /// <param name="End">Exclusivo, como no Google e no FullCalendar (evento do dia 10 termina em "11").</param>
+/// <param name="MemberId">Dono do item na agenda do grupo (define a cor). Nulo na agenda pessoal.</param>
 public sealed record AgendaItem(
     string Id,
     string SourceId,
@@ -35,9 +36,29 @@ public sealed record AgendaItem(
     string Start,
     string End,
     bool AllDay,
-    string? Location);
+    string? Location,
+    Guid? MemberId = null);
 
 public sealed record AgendaResponse(IReadOnlyList<AgendaItem> Items, IReadOnlyList<string> FailedSources);
+
+/// <param name="UnavailableMembers">Membros cuja conexão com o Google expirou: a agenda deles não pôde ser lida.</param>
+public sealed record GroupAgendaResponse(
+    IReadOnlyList<AgendaItem> Items,
+    IReadOnlyList<string> FailedSources,
+    IReadOnlyList<Guid> UnavailableMembers);
+
+public static class AgendaRange
+{
+    public static readonly TimeSpan Max = TimeSpan.FromDays(62);
+
+    public static Dictionary<string, string[]> Validate(DateTimeOffset from, DateTimeOffset to)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (to <= from) errors["to"] = ["'to' deve ser maior que 'from'."];
+        else if (to - from > Max) errors["to"] = [$"O intervalo máximo é de {Max.TotalDays} dias."];
+        return errors;
+    }
+}
 
 public sealed record SourceDto(string Id, SourceKind Kind, string Name, bool Primary, string? GoogleColor);
 
