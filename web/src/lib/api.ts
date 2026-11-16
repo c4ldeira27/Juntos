@@ -51,12 +51,14 @@ export interface GroupAgendaResponse extends AgendaResponse {
 
 export type Visibility = 'details' | 'busyOnly'
 
+export type GroupRole = 'owner' | 'admin' | 'member'
+
 export interface Member {
   userId: string
   name: string
   avatarUrl: string | null
   color: string
-  role: 'owner' | 'member'
+  role: GroupRole
   isMe: boolean
   needsReconnect: boolean
   sharingConfigured: boolean
@@ -66,8 +68,18 @@ export interface Member {
 export interface Group {
   id: string
   name: string
+  myRole: GroupRole
   members: Member[]
   maxMembers: number
+}
+
+/** One line of the group switcher. */
+export interface GroupSummary {
+  id: string
+  name: string
+  myRole: GroupRole
+  myColor: string
+  memberCount: number
 }
 
 export interface SharingItem {
@@ -85,7 +97,7 @@ export interface SharingChoice {
   visibility: Visibility
 }
 
-export type InviteStatus = 'valid' | 'expired' | 'used' | 'alreadyMember' | 'inAnotherGroup' | 'full'
+export type InviteStatus = 'valid' | 'expired' | 'used' | 'alreadyMember' | 'tooManyGroups' | 'full'
 
 export interface InvitePreview {
   groupName: string
@@ -142,11 +154,17 @@ export const api = {
   },
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
 
-  // ---- Group ----
-  /** 204 = no group. TanStack Query doesn't accept undefined as data, so it becomes null. */
-  currentGroup: async () => (await request<Group | undefined>('/api/groups/current')) ?? null,
+  // ---- Groups ----
+  groups: () => request<GroupSummary[]>('/api/groups'),
+  group: (groupId: string) => request<Group>(`/api/groups/${groupId}`),
   createGroup: (name: string) => request<Group>('/api/groups', withJson('POST', { name })),
+  renameGroup: (groupId: string, name: string) => request<Group>(`/api/groups/${groupId}`, withJson('PATCH', { name })),
+  deleteGroup: (groupId: string) => request<void>(`/api/groups/${groupId}`, { method: 'DELETE' }),
   leaveGroup: (groupId: string) => request<void>(`/api/groups/${groupId}/members/me`, { method: 'DELETE' }),
+  removeMember: (groupId: string, userId: string) =>
+    request<void>(`/api/groups/${groupId}/members/${userId}`, { method: 'DELETE' }),
+  setMemberRole: (groupId: string, userId: string, role: Exclude<GroupRole, 'owner'>) =>
+    request<Group>(`/api/groups/${groupId}/members/${userId}/role`, withJson('PUT', { role })),
   createInvite: (groupId: string) => request<Invite>(`/api/groups/${groupId}/invites`, { method: 'POST' }),
   sharing: (groupId: string) => request<SharingItem[]>(`/api/groups/${groupId}/sharing`),
   updateSharing: (groupId: string, sources: SharingChoice[]) =>

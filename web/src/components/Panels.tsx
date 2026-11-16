@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
-import { loginUrl, type Group, type Me, type Source } from '../lib/api'
-import { AlertIcon } from './icons'
+import { loginUrl, type Group, type GroupRole, type Me, type Source } from '../lib/api'
+import { canManage } from '../lib/permissions'
+import { AlertIcon, SettingsIcon } from './icons'
 import { SidebarSection } from './Sidebar'
 import { Avatar, buttonPrimary, buttonSecondary, ColorCheck } from './ui'
 
@@ -14,10 +15,12 @@ interface PersonalPanelProps {
   failed: string[]
   colorFor: (sourceId: string) => string
   onToggle: (sourceId: string) => void
+  /** Shows the "Better together" card only to people who aren't in any group yet. */
+  hasGroups: boolean
   onCreateGroup: () => void
 }
 
-export function PersonalPanel({ me, sources, loading, selected, failed, colorFor, onToggle, onCreateGroup }: PersonalPanelProps) {
+export function PersonalPanel({ me, sources, loading, selected, failed, colorFor, onToggle, hasGroups, onCreateGroup }: PersonalPanelProps) {
   const { t } = useTranslation()
   const calendars = sources?.filter((s) => s.kind === 'calendar') ?? []
   const taskLists = sources?.filter((s) => s.kind === 'taskList') ?? []
@@ -25,13 +28,15 @@ export function PersonalPanel({ me, sources, loading, selected, failed, colorFor
 
   return (
     <>
-      <div className="rounded-2xl border border-line bg-surface p-4">
-        <p className="text-sm font-semibold">{t('personal.ctaTitle')}</p>
-        <p className="mt-1 text-xs text-pretty text-muted">{t('personal.ctaBody')}</p>
-        <button onClick={onCreateGroup} className={`${buttonPrimary} mt-3 h-9 w-full`}>
-          {t('personal.createGroup')}
-        </button>
-      </div>
+      {!hasGroups && (
+        <div className="rounded-2xl border border-line bg-surface p-4">
+          <p className="text-sm font-semibold">{t('personal.ctaTitle')}</p>
+          <p className="mt-1 text-xs text-pretty text-muted">{t('personal.ctaBody')}</p>
+          <button onClick={onCreateGroup} className={`${buttonPrimary} mt-3 h-9 w-full`}>
+            {t('personal.createGroup')}
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-2 px-2" aria-label={t('personal.loadingCalendars')}>
@@ -104,24 +109,35 @@ interface GroupPanelProps {
   onToggleMember: (userId: string) => void
   onInvite: () => void
   onSharing: () => void
+  onSettings: () => void
 }
 
-export function GroupPanel({ group, hidden, unavailable, onToggleMember, onInvite, onSharing }: GroupPanelProps) {
+export function GroupPanel({ group, hidden, unavailable, onToggleMember, onInvite, onSharing, onSettings }: GroupPanelProps) {
   const { t } = useTranslation()
   const alone = group.members.length === 1
-  const canInvite = group.members.length < group.maxMembers
+  // Only owner/admins see the invite buttons (the API refuses members anyway).
+  const canInvite = canManage(group.myRole) && group.members.length < group.maxMembers
 
   return (
     <>
       <SidebarSection
-        title={group.name}
+        title={t('group.members')}
         action={
-          canInvite &&
-          !alone && (
-            <button onClick={onInvite} className="text-xs font-medium text-accent hover:underline">
-              {t('group.invite')}
+          <div className="flex items-center gap-2">
+            {canInvite && !alone && (
+              <button onClick={onInvite} className="text-xs font-medium text-accent hover:underline">
+                {t('group.invite')}
+              </button>
+            )}
+            <button
+              onClick={onSettings}
+              className="rounded-md p-1 text-muted transition hover:bg-surface-2 hover:text-ink"
+              aria-label={t('group.settings')}
+              title={t('group.settings')}
+            >
+              <SettingsIcon width={14} height={14} />
             </button>
-          )
+          </div>
         }
       >
         <ul className="space-y-0.5">
@@ -141,9 +157,12 @@ export function GroupPanel({ group, hidden, unavailable, onToggleMember, onInvit
                   <input type="checkbox" className="peer sr-only" checked={visible} onChange={() => onToggleMember(m.userId)} />
                   <Avatar name={m.name} url={m.avatarUrl} color={m.color} size={30} />
                   <div className={`min-w-0 flex-1 transition ${visible ? '' : 'opacity-40'}`}>
-                    <div className="truncate text-sm font-medium">
-                      {m.name}
-                      {m.isMe && <span className="font-normal text-muted"> {t('group.you')}</span>}
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-medium">
+                        {m.name}
+                        {m.isMe && <span className="font-normal text-muted"> {t('group.you')}</span>}
+                      </span>
+                      {m.role !== 'member' && <RoleBadge role={m.role} />}
                     </div>
                     <div className={`flex items-center gap-1 truncate text-xs ${disconnected ? 'text-amber-500' : 'text-muted'}`}>
                       {disconnected && <AlertIcon width={12} height={12} />}
@@ -158,7 +177,7 @@ export function GroupPanel({ group, hidden, unavailable, onToggleMember, onInvit
         </ul>
       </SidebarSection>
 
-      {alone && (
+      {alone && canInvite && (
         <div className="rounded-2xl border border-line bg-surface p-4">
           <p className="text-sm font-semibold">{t('group.aloneTitle')}</p>
           <p className="mt-1 text-xs text-pretty text-muted">{t('group.aloneBody')}</p>
@@ -172,6 +191,19 @@ export function GroupPanel({ group, hidden, unavailable, onToggleMember, onInvit
         {t('group.sharingButton')}
       </button>
     </>
+  )
+}
+
+export function RoleBadge({ role }: { role: GroupRole }) {
+  const { t } = useTranslation()
+  return (
+    <span
+      className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold tracking-wide uppercase ${
+        role === 'owner' ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-muted'
+      }`}
+    >
+      {t(`roles.${role}`)}
+    </span>
   )
 }
 

@@ -58,10 +58,15 @@ public sealed class Group
     public List<GroupInvite> Invites { get; set; } = [];
 }
 
+/// <summary>Stored as text. What each role may do lives in <c>GroupRules</c>.</summary>
 public enum GroupRole
 {
+    /// <summary>Exactly one per group: the creator, or whoever took over when the owner left.</summary>
     Owner = 1,
     Member = 2,
+
+    /// <summary>Promoted by the owner: can rename the group, invite, and remove regular members.</summary>
+    Admin = 3,
 }
 
 public sealed class GroupMember

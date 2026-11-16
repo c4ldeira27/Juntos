@@ -1,5 +1,47 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
-import type { Source } from './api'
+import type { GroupSummary, Source } from './api'
+
+/** Value of the switcher for "my own calendars, no group". */
+export const PERSONAL = 'personal'
+const GROUP_KEY = 'juntos.selectedGroup'
+
+/** Lets other screens (e.g. accepting an invite) choose which view opens next. null = default. */
+export function rememberSelectedGroup(id: string | null) {
+  try {
+    if (id === null) localStorage.removeItem(GROUP_KEY)
+    else localStorage.setItem(GROUP_KEY, id)
+  } catch {
+    // private mode or blocked storage: the choice lasts only for this session
+  }
+}
+
+/**
+ * Which view is on screen: PERSONAL or a group id. Remembered per browser.
+ * Default: the first group (the one joined first), or the personal view if there are none.
+ */
+export function useSelectedGroup(groups: GroupSummary[] | undefined) {
+  const [stored, setStored] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(GROUP_KEY)
+    } catch {
+      return null
+    }
+  })
+
+  const selected = useMemo(() => {
+    if (!groups) return null
+    if (stored === PERSONAL) return PERSONAL
+    if (stored && groups.some((g) => g.id === stored)) return stored
+    return groups[0]?.id ?? PERSONAL
+  }, [groups, stored])
+
+  const select = useCallback((id: string | null) => {
+    setStored(id)
+    rememberSelectedGroup(id)
+  }, [])
+
+  return { selected, select }
+}
 
 export function useMediaQuery(query: string) {
   return useSyncExternalStore(

@@ -8,14 +8,19 @@ import { buttonPrimary, buttonSecondary, Modal, Segmented } from './ui'
 
 // ===================== Create group =====================
 
-export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
+export function CreateGroupDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (groupId: string) => void }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const create = useMutation({
     mutationFn: () => api.createGroup(name.trim()),
-    // Puts the group straight into the cache: the screen switches to group mode without another request.
-    onSuccess: (group) => queryClient.setQueryData(['group'], group),
+    onSuccess: async (group) => {
+      // Puts the group straight into the cache: the screen opens it without another request.
+      queryClient.setQueryData(['group', group.id], group)
+      await queryClient.invalidateQueries({ queryKey: ['groups'] })
+      onCreated(group.id)
+      onClose()
+    },
   })
 
   function submit(e: FormEvent) {
@@ -164,8 +169,8 @@ export function SharingDialog({ group, onClose }: { group: Group; onClose: () =>
       ),
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['group'] }),
-        queryClient.invalidateQueries({ queryKey: ['group-agenda'] }),
+        queryClient.invalidateQueries({ queryKey: ['group', group.id] }),
+        queryClient.invalidateQueries({ queryKey: ['group-agenda', group.id] }),
       ])
       onClose()
     },
@@ -175,7 +180,7 @@ export function SharingDialog({ group, onClose }: { group: Group; onClose: () =>
 
   return (
     <Modal
-      title={firstTime ? t('sharing.titleFirst') : t('sharing.title')}
+      title={firstTime ? t('sharing.titleFirst', { group: group.name }) : t('sharing.title', { group: group.name })}
       description={<Trans i18nKey="sharing.description" components={{ b: <b /> }} />}
       onClose={onClose}
       footer={

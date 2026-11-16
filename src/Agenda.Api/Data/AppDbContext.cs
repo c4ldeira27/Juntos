@@ -53,9 +53,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         modelBuilder.Entity<GroupMember>(e =>
         {
             e.HasKey(x => new { x.GroupId, x.UserId });
-            // MVP rule: each person belongs to at most 1 group. The unique index enforces it
-            // even against two concurrent requests (an "if" in code alone would not).
-            e.HasIndex(x => x.UserId).IsUnique();
+            // A person can be in several groups (limit in GroupRules.MaxGroupsPerUser).
+            // The index only speeds up "which groups am I in?".
+            e.HasIndex(x => x.UserId);
             e.Property(x => x.Role).HasConversion<string>().HasMaxLength(16);
             e.Property(x => x.Color).HasMaxLength(9);
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);

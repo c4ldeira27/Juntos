@@ -1,12 +1,14 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
+using Agenda.Api.Data;
 
 namespace Agenda.Api.Groups;
 
 public static class GroupRules
 {
     public const int MaxMembers = 6;
+    public const int MaxGroupsPerUser = 10;
     public const int MaxNameLength = 60;
     public const int MaxSharedSources = 30;
     public static readonly TimeSpan InviteLifetime = TimeSpan.FromHours(48);
@@ -20,6 +22,34 @@ public static class GroupRules
         var used = usedColors.ToHashSet(StringComparer.OrdinalIgnoreCase);
         return MemberColors.FirstOrDefault(c => !used.Contains(c)) ?? MemberColors[used.Count % MemberColors.Length];
     }
+
+    // ---------------- Permissions ----------------
+    // Kept here as pure functions so the whole permission matrix is in one place and unit-tested.
+
+    /// <summary>Rename the group and create invites.</summary>
+    public static bool CanManage(GroupRole actor) => actor is GroupRole.Owner or GroupRole.Admin;
+
+    public static bool CanDelete(GroupRole actor) => actor == GroupRole.Owner;
+
+    /// <summary>Promote a member to admin or demote an admin to member.</summary>
+    public static bool CanChangeRoles(GroupRole actor) => actor == GroupRole.Owner;
+
+    /// <summary>The owner can remove anyone else; an admin only regular members; members nobody.</summary>
+    public static bool CanRemove(GroupRole actor, GroupRole target) => actor switch
+    {
+        GroupRole.Owner => target != GroupRole.Owner,
+        GroupRole.Admin => target == GroupRole.Member,
+        _ => false,
+    };
+
+    /// <summary>
+    /// When the owner leaves, someone must take over: the longest-standing admin, otherwise the longest-standing member.
+    /// </summary>
+    public static GroupMember? NextOwner(IEnumerable<GroupMember> remaining) =>
+        remaining
+            .OrderBy(m => m.Role == GroupRole.Admin ? 0 : 1)
+            .ThenBy(m => m.JoinedAt)
+            .FirstOrDefault();
 }
 
 public static class InviteTokens

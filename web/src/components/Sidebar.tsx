@@ -9,13 +9,15 @@ interface SidebarProps {
   me: Me
   onLogout: () => void
   onClose?: () => void
+  /** Group switcher, right under the profile card. */
+  switcher?: ReactNode
   /** Content for the current mode: calendars (personal) or members (group). */
   children: ReactNode
   /** Extra action at the bottom, next to the language switch (e.g. "Leave group"). */
   footer?: ReactNode
 }
 
-export function Sidebar({ me, onLogout, onClose, children, footer }: SidebarProps) {
+export function Sidebar({ me, onLogout, onClose, switcher, children, footer }: SidebarProps) {
   const { t } = useTranslation()
   return (
     <aside className="flex h-full w-72 flex-col gap-6 overflow-y-auto bg-bg px-4 py-5">
@@ -44,6 +46,8 @@ export function Sidebar({ me, onLogout, onClose, children, footer }: SidebarProp
           <LogoutIcon width={16} height={16} />
         </button>
       </div>
+
+      {switcher}
 
       {children}
 
