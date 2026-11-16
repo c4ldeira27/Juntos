@@ -1,6 +1,66 @@
+using Agenda.Api.Data;
 using Agenda.Api.Groups;
 
 namespace Agenda.Api.Tests;
+
+public class GroupPermissionTests
+{
+    [Theory]
+    [InlineData(GroupRole.Owner, true)]
+    [InlineData(GroupRole.Admin, true)]
+    [InlineData(GroupRole.Member, false)]
+    public void CanManage_RenameAndInvite(GroupRole actor, bool expected) =>
+        Assert.Equal(expected, GroupRules.CanManage(actor));
+
+    [Theory]
+    [InlineData(GroupRole.Owner, true)]
+    [InlineData(GroupRole.Admin, false)]
+    [InlineData(GroupRole.Member, false)]
+    public void CanDelete_OnlyOwner(GroupRole actor, bool expected) =>
+        Assert.Equal(expected, GroupRules.CanDelete(actor));
+
+    [Theory]
+    [InlineData(GroupRole.Owner, true)]
+    [InlineData(GroupRole.Admin, false)]
+    [InlineData(GroupRole.Member, false)]
+    public void CanChangeRoles_OnlyOwner(GroupRole actor, bool expected) =>
+        Assert.Equal(expected, GroupRules.CanChangeRoles(actor));
+
+    [Theory]
+    [InlineData(GroupRole.Owner, GroupRole.Admin, true)]
+    [InlineData(GroupRole.Owner, GroupRole.Member, true)]
+    [InlineData(GroupRole.Owner, GroupRole.Owner, false)]
+    [InlineData(GroupRole.Admin, GroupRole.Member, true)]
+    [InlineData(GroupRole.Admin, GroupRole.Admin, false)]
+    [InlineData(GroupRole.Admin, GroupRole.Owner, false)]
+    [InlineData(GroupRole.Member, GroupRole.Member, false)]
+    public void CanRemove_FollowsTheHierarchy(GroupRole actor, GroupRole target, bool expected) =>
+        Assert.Equal(expected, GroupRules.CanRemove(actor, target));
+
+    [Fact]
+    public void NextOwner_PrefersTheLongestStandingAdmin()
+    {
+        var t0 = DateTimeOffset.UtcNow;
+        var oldMember = Member(GroupRole.Member, t0);
+        var newAdmin = Member(GroupRole.Admin, t0.AddDays(5));
+        var oldAdmin = Member(GroupRole.Admin, t0.AddDays(1));
+
+        Assert.Same(oldAdmin, GroupRules.NextOwner([oldMember, newAdmin, oldAdmin]));
+    }
+
+    [Fact]
+    public void NextOwner_WithoutAdmins_PicksTheLongestStandingMember()
+    {
+        var t0 = DateTimeOffset.UtcNow;
+        var newer = Member(GroupRole.Member, t0.AddDays(2));
+        var older = Member(GroupRole.Member, t0);
+
+        Assert.Same(older, GroupRules.NextOwner([newer, older]));
+    }
+
+    private static GroupMember Member(GroupRole role, DateTimeOffset joinedAt) =>
+        new() { GroupId = Guid.NewGuid(), UserId = Guid.NewGuid(), Role = role, Color = "#000000", JoinedAt = joinedAt };
+}
 
 public class GroupRulesTests
 {

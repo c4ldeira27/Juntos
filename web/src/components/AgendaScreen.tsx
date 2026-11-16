@@ -1,27 +1,58 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { api, needsReconnect, type AgendaItem, type Group, type Me } from '../lib/api'
+import { api, ApiError, needsReconnect, type AgendaItem, type Group, type GroupSummary, type Me } from '../lib/api'
 import { colorAt } from '../lib/config'
-import { useSelectedSources } from '../lib/hooks'
+import { PERSONAL, useSelectedSources } from '../lib/hooks'
 import { CalendarView, type DateRange } from './CalendarView'
 import { CreateGroupDialog, InviteDialog, SharingDialog } from './GroupDialogs'
+import { GroupSettingsDialog } from './GroupSettingsDialog'
+import { GroupSwitcher } from './GroupSwitcher'
 import { GroupPanel, LeaveGroupButton, PersonalPanel } from './Panels'
 import { Sidebar } from './Sidebar'
 
 const REFRESH_INTERVAL = 5 * 60_000
 
-/** No group: personal agenda (M1). With a group: unified agenda, one color per person. */
-export function AgendaScreen({ me, group }: { me: Me; group: Group | null }) {
-  // "key" forces a remount when the group changes: state such as filters and dialogs doesn't leak between groups.
-  return group ? <GroupAgenda key={group.id} me={me} group={group} /> : <PersonalAgenda me={me} />
+interface AgendaScreenProps {
+  me: Me
+  groups: GroupSummary[]
+  /** PERSONAL or a group id. */
+  selected: string
+  /** null goes back to the default view (first group, or personal). */
+  onSelect: (id: string | null) => void
+}
+
+/** The switcher picks the view: my own calendars, or one group's unified agenda (one color per person). */
+export function AgendaScreen({ me, groups, selected, onSelect }: AgendaScreenProps) {
+  const [creating, setCreating] = useState(false)
+  const switcher = (
+    <GroupSwitcher groups={groups} selected={selected} onSelect={onSelect} onCreate={() => setCreating(true)} />
+  )
+
+  return (
+    <>
+      {selected === PERSONAL ? (
+        <PersonalAgenda me={me} switcher={switcher} hasGroups={groups.length > 0} onCreateGroup={() => setCreating(true)} />
+      ) : (
+        // "key" forces a remount when the group changes: filters and dialogs don't leak between groups.
+        <GroupAgenda key={selected} me={me} groupId={selected} switcher={switcher} onGone={() => onSelect(null)} />
+      )}
+      {creating && <CreateGroupDialog onClose={() => setCreating(false)} onCreated={onSelect} />}
+    </>
+  )
 }
 
 // ===================== Personal =====================
 
-function PersonalAgenda({ me }: { me: Me }) {
+interface PersonalAgendaProps {
+  me: Me
+  switcher: ReactNode
+  hasGroups: boolean
+  onCreateGroup: () => void
+}
+
+function PersonalAgenda({ me, switcher, hasGroups, onCreateGroup }: PersonalAgendaProps) {
   const [range, setRange] = useState<DateRange | null>(null)
-  const [creating, setCreating] = useState(false)
 
   const sourcesQuery = useQuery({ queryKey: ['sources'], queryFn: api.sources, staleTime: 5 * 60_000 })
   const { selected, toggle } = useSelectedSources(sourcesQuery.data)
@@ -44,43 +75,80 @@ function PersonalAgenda({ me }: { me: Me }) {
   const colorOf = useCallback((item: AgendaItem) => colorFor(item.sourceId), [colorFor])
 
   return (
-    <>
-      <AgendaLayout
-        me={me}
-        panel={
-          <PersonalPanel
-            me={me}
-            sources={sourcesQuery.data}
-            loading={sourcesQuery.isPending}
-            selected={selected}
-            failed={agendaQuery.data?.failedSources ?? []}
-            colorFor={colorFor}
-            onToggle={toggle}
-            onCreateGroup={() => setCreating(true)}
-          />
-        }
-        items={selected.length > 0 ? (agendaQuery.data?.items ?? []) : []}
-        colorOf={colorOf}
-        fetching={agendaQuery.isFetching || sourcesQuery.isFetching}
-        failed={agendaQuery.isError && !needsReconnect(agendaQuery.error)}
-        onRetry={() => agendaQuery.refetch()}
-        onRangeChange={setRange}
-      />
-      {creating && <CreateGroupDialog onClose={() => setCreating(false)} />}
-    </>
+    <AgendaLayout
+      me={me}
+      switcher={switcher}
+      panel={
+        <PersonalPanel
+          me={me}
+          sources={sourcesQuery.data}
+          loading={sourcesQuery.isPending}
+          selected={selected}
+          failed={agendaQuery.data?.failedSources ?? []}
+          colorFor={colorFor}
+          onToggle={toggle}
+          hasGroups={hasGroups}
+          onCreateGroup={onCreateGroup}
+        />
+      }
+      items={selected.length > 0 ? (agendaQuery.data?.items ?? []) : []}
+      colorOf={colorOf}
+      fetching={agendaQuery.isFetching || sourcesQuery.isFetching}
+      failed={agendaQuery.isError && !needsReconnect(agendaQuery.error)}
+      onRetry={() => agendaQuery.refetch()}
+      onRangeChange={setRange}
+    />
   )
 }
 
 // ===================== Group =====================
 
-type GroupDialog = 'invite' | 'sharing' | null
+interface GroupAgendaProps {
+  me: Me
+  groupId: string
+  switcher: ReactNode
+  /** The group no longer exists for me (left, removed or deleted). */
+  onGone: () => void
+}
 
-function GroupAgenda({ me, group }: { me: Me; group: Group }) {
+function GroupAgenda({ me, groupId, switcher, onGone }: GroupAgendaProps) {
+  const queryClient = useQueryClient()
+  const groupQuery = useQuery({ queryKey: ['group', groupId], queryFn: () => api.group(groupId) })
+
+  // Removed from the group by an admin (or the group was deleted) while it was selected: 404 → go to another view.
+  const gone = groupQuery.error instanceof ApiError && groupQuery.error.status === 404
+  useEffect(() => {
+    if (!gone) return
+    void queryClient.invalidateQueries({ queryKey: ['groups'] })
+    onGone()
+  }, [gone, onGone, queryClient])
+
+  if (!groupQuery.data)
+    return (
+      <AgendaLayout
+        me={me}
+        switcher={switcher}
+        panel={<PanelSkeleton />}
+        items={[]}
+        colorOf={() => colorAt(0)}
+        fetching={groupQuery.isFetching}
+        failed={groupQuery.isError && !gone}
+        onRetry={() => groupQuery.refetch()}
+        onRangeChange={() => {}}
+      />
+    )
+
+  return <LoadedGroupAgenda me={me} group={groupQuery.data} switcher={switcher} onGone={onGone} />
+}
+
+type GroupDialog = 'invite' | 'sharing' | 'settings' | null
+
+function LoadedGroupAgenda({ me, group, switcher, onGone }: { me: Me; group: Group; switcher: ReactNode; onGone: () => void }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [range, setRange] = useState<DateRange | null>(null)
   const [hidden, setHidden] = useState<Set<string>>(() => new Set())
-  // Someone who just joined (or created) hasn't chosen what to share yet: open that choice right away.
+  // Someone who just joined (or created) this group hasn't chosen what to share in it yet: open that choice right away.
   const [dialog, setDialog] = useState<GroupDialog>(() =>
     group.members.find((m) => m.isMe)?.sharingConfigured ? null : 'sharing',
   )
@@ -117,8 +185,10 @@ function GroupAgenda({ me, group }: { me: Me; group: Group }) {
     const message = group.members.length > 1 ? t('group.confirmLeave') : t('group.confirmLeaveLast')
     if (!window.confirm(message)) return
     await api.leaveGroup(group.id)
-    queryClient.removeQueries({ queryKey: ['group-agenda'] })
-    queryClient.setQueryData(['group'], null)
+    queryClient.removeQueries({ queryKey: ['group', group.id] })
+    queryClient.removeQueries({ queryKey: ['group-agenda', group.id] })
+    await queryClient.invalidateQueries({ queryKey: ['groups'] })
+    onGone()
   }
 
   const closeDialog = useCallback(() => setDialog(null), [])
@@ -127,6 +197,7 @@ function GroupAgenda({ me, group }: { me: Me; group: Group }) {
     <>
       <AgendaLayout
         me={me}
+        switcher={switcher}
         panel={
           <GroupPanel
             group={group}
@@ -135,6 +206,7 @@ function GroupAgenda({ me, group }: { me: Me; group: Group }) {
             onToggleMember={toggleMember}
             onInvite={() => setDialog('invite')}
             onSharing={() => setDialog('sharing')}
+            onSettings={() => setDialog('settings')}
           />
         }
         footer={<LeaveGroupButton onLeave={leave} />}
@@ -147,7 +219,18 @@ function GroupAgenda({ me, group }: { me: Me; group: Group }) {
       />
       {dialog === 'invite' && <InviteDialog groupId={group.id} onClose={closeDialog} />}
       {dialog === 'sharing' && <SharingDialog group={group} onClose={closeDialog} />}
+      {dialog === 'settings' && <GroupSettingsDialog group={group} onClose={closeDialog} onDeleted={onGone} />}
     </>
+  )
+}
+
+function PanelSkeleton() {
+  return (
+    <div className="space-y-2 px-2" aria-hidden>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="h-10 animate-pulse rounded-xl bg-surface-2" />
+      ))}
+    </div>
   )
 }
 
@@ -164,6 +247,7 @@ function useReconnectOn(...errors: unknown[]) {
 
 interface AgendaLayoutProps {
   me: Me
+  switcher: ReactNode
   panel: ReactNode
   footer?: ReactNode
   items: AgendaItem[]
@@ -174,7 +258,7 @@ interface AgendaLayoutProps {
   onRangeChange: (range: DateRange) => void
 }
 
-function AgendaLayout({ me, panel, footer, items, colorOf, fetching, failed, onRetry, onRangeChange }: AgendaLayoutProps) {
+function AgendaLayout({ me, switcher, panel, footer, items, colorOf, fetching, failed, onRetry, onRangeChange }: AgendaLayoutProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -186,7 +270,7 @@ function AgendaLayout({ me, panel, footer, items, colorOf, fetching, failed, onR
   }
 
   const sidebar = (onClose?: () => void) => (
-    <Sidebar me={me} onLogout={logout} onClose={onClose} footer={footer}>
+    <Sidebar me={me} onLogout={logout} onClose={onClose} switcher={switcher} footer={footer}>
       {panel}
     </Sidebar>
   )

@@ -12,10 +12,17 @@ public static class GroupEndpoints
     public static void MapGroupEndpoints(this IEndpointRouteBuilder app)
     {
         var groups = app.MapGroup("/api/groups").RequireAuthorization();
-        groups.MapGet("/current", GetCurrentAsync);
+        groups.MapGet("/", ListAsync);
         groups.MapPost("/", CreateAsync);
-        groups.MapPost("/{groupId:guid}/invites", CreateInviteAsync);
+        groups.MapGet("/{groupId:guid}", GetAsync);
+        groups.MapPatch("/{groupId:guid}", RenameAsync);
+        groups.MapDelete("/{groupId:guid}", DeleteAsync);
+
         groups.MapDelete("/{groupId:guid}/members/me", LeaveAsync);
+        groups.MapDelete("/{groupId:guid}/members/{userId:guid}", RemoveMemberAsync);
+        groups.MapPut("/{groupId:guid}/members/{userId:guid}/role", ChangeRoleAsync);
+
+        groups.MapPost("/{groupId:guid}/invites", CreateInviteAsync);
         groups.MapGet("/{groupId:guid}/sharing", GetSharingAsync);
         groups.MapPut("/{groupId:guid}/sharing", UpdateSharingAsync);
         groups.MapGet("/{groupId:guid}/agenda", GetAgendaAsync);
@@ -25,31 +32,38 @@ public static class GroupEndpoints
         invites.MapPost("/{token}/accept", AcceptInviteAsync);
     }
 
-    // ---------------- Group ----------------
+    // ---------------- Groups ----------------
 
-    /// <summary>204 when the user isn't in any group yet (the front end shows the personal agenda).</summary>
-    private static async Task<IResult> GetCurrentAsync(ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
+    /// <summary>Every group the user belongs to, for the group switcher (empty list = personal agenda only).</summary>
+    private static async Task<IResult> ListAsync(ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
         if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
 
-        var groupId = await db.GroupMembers.Where(m => m.UserId == userId).Select(m => (Guid?)m.GroupId).FirstOrDefaultAsync(ct);
-        return groupId is { } id ? Results.Ok(await LoadGroupAsync(db, id, userId, ct)) : Results.NoContent();
+        var groups = await db.GroupMembers.AsNoTracking()
+            .Where(m => m.UserId == userId)
+            .OrderBy(m => m.JoinedAt)
+            .Select(m => new GroupSummaryDto(m.GroupId, m.Group.Name, m.Role, m.Color, m.Group.Members.Count))
+            .ToListAsync(ct);
+
+        return Results.Ok(groups);
+    }
+
+    private static async Task<IResult> GetAsync(Guid groupId, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
+    {
+        if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
+        if (await GetRoleAsync(db, groupId, userId, ct) is null) return Results.NotFound();
+
+        return Results.Ok(await LoadGroupAsync(db, groupId, userId, ct));
     }
 
     private static async Task<IResult> CreateAsync(
         CreateGroupRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken ct)
     {
         if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
+        if (ValidateName(request.Name) is not { } name) return InvalidName();
 
-        var name = request.Name?.Trim();
-        if (string.IsNullOrEmpty(name) || name.Length > GroupRules.MaxNameLength)
-            return Results.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["name"] = [$"Name must be 1 to {GroupRules.MaxNameLength} characters."],
-            });
-
-        if (await db.GroupMembers.AnyAsync(m => m.UserId == userId, ct))
-            return Problem(StatusCodes.Status409Conflict, "already_in_group", "You are already in a group.");
+        if (await db.GroupMembers.CountAsync(m => m.UserId == userId, ct) >= GroupRules.MaxGroupsPerUser)
+            return Problem(StatusCodes.Status409Conflict, "too_many_groups", $"You can be in at most {GroupRules.MaxGroupsPerUser} groups.");
 
         var now = time.GetUtcNow();
         var group = new Group { Id = Guid.CreateVersion7(), Name = name, CreatedByUserId = userId, CreatedAt = now };
@@ -67,9 +81,34 @@ public static class GroupEndpoints
         return Results.Created($"/api/groups/{group.Id}", await LoadGroupAsync(db, group.Id, userId, ct));
     }
 
+    private static async Task<IResult> RenameAsync(
+        Guid groupId, RenameGroupRequest request, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
+    {
+        if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
+        if (await GetRoleAsync(db, groupId, userId, ct) is not { } role) return Results.NotFound();
+        if (!GroupRules.CanManage(role)) return Forbidden();
+        if (ValidateName(request.Name) is not { } name) return InvalidName();
+
+        await db.Groups.Where(g => g.Id == groupId).ExecuteUpdateAsync(s => s.SetProperty(g => g.Name, name), ct);
+        return Results.Ok(await LoadGroupAsync(db, groupId, userId, ct));
+    }
+
+    /// <summary>Owner only. Members, shared calendars and invites go with it (database cascade).</summary>
+    private static async Task<IResult> DeleteAsync(Guid groupId, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
+    {
+        if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
+        if (await GetRoleAsync(db, groupId, userId, ct) is not { } role) return Results.NotFound();
+        if (!GroupRules.CanDelete(role)) return Forbidden();
+
+        await db.Groups.Where(g => g.Id == groupId).ExecuteDeleteAsync(ct);
+        return Results.NoContent();
+    }
+
+    // ---------------- Members ----------------
+
     /// <summary>
     /// Leave the group. The database cascades the delete of everything the person shared.
-    /// If they were the owner, the oldest member takes over; if they were the last one, the group is deleted.
+    /// If they were the owner, the longest-standing admin (or member) takes over; if they were the last one, the group is deleted.
     /// </summary>
     private static async Task<IResult> LeaveAsync(Guid groupId, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
@@ -84,19 +123,64 @@ public static class GroupEndpoints
             db.GroupMembers.Remove(member);
             await db.SaveChangesAsync(ct);
 
-            var remaining = await db.GroupMembers.Where(m => m.GroupId == groupId).OrderBy(m => m.JoinedAt).ToListAsync(ct);
+            var remaining = await db.GroupMembers.Where(m => m.GroupId == groupId).ToListAsync(ct);
             if (remaining.Count == 0)
             {
                 await db.Groups.Where(g => g.Id == groupId).ExecuteDeleteAsync(ct);
             }
             else if (remaining.All(m => m.Role != GroupRole.Owner))
             {
-                remaining[0].Role = GroupRole.Owner;
+                GroupRules.NextOwner(remaining)!.Role = GroupRole.Owner;
                 await db.SaveChangesAsync(ct);
             }
 
             return Results.NoContent();
         }, ct);
+    }
+
+    private static async Task<IResult> RemoveMemberAsync(
+        Guid groupId, Guid userId, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
+    {
+        if (principal.GetUserId() is not { } actorId) return Results.Unauthorized();
+        if (actorId == userId)
+            return Problem(StatusCodes.Status400BadRequest, "use_leave", "To leave the group, use /members/me.");
+
+        var members = await db.GroupMembers
+            .Where(m => m.GroupId == groupId && (m.UserId == actorId || m.UserId == userId))
+            .ToListAsync(ct);
+        var actor = members.SingleOrDefault(m => m.UserId == actorId);
+        if (actor is null) return Results.NotFound();
+        var target = members.SingleOrDefault(m => m.UserId == userId);
+        if (target is null) return Results.NotFound();
+        if (!GroupRules.CanRemove(actor.Role, target.Role)) return Forbidden();
+
+        // Their shared calendars go with the membership (cascade): they stop showing for everyone right away.
+        db.GroupMembers.Remove(target);
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> ChangeRoleAsync(
+        Guid groupId, Guid userId, ChangeRoleRequest request, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
+    {
+        if (principal.GetUserId() is not { } actorId) return Results.Unauthorized();
+        if (request.Role is not (GroupRole.Admin or GroupRole.Member))
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["role"] = ["Role must be 'admin' or 'member'."] });
+
+        var members = await db.GroupMembers
+            .Where(m => m.GroupId == groupId && (m.UserId == actorId || m.UserId == userId))
+            .ToListAsync(ct);
+        var actor = members.SingleOrDefault(m => m.UserId == actorId);
+        if (actor is null) return Results.NotFound();
+        if (!GroupRules.CanChangeRoles(actor.Role)) return Forbidden();
+        var target = members.SingleOrDefault(m => m.UserId == userId);
+        if (target is null) return Results.NotFound();
+        // The owner can't demote themselves this way: the group would be left without an owner.
+        if (target.Role == GroupRole.Owner) return Forbidden();
+
+        target.Role = request.Role;
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(await LoadGroupAsync(db, groupId, actorId, ct));
     }
 
     // ---------------- Invites ----------------
@@ -105,7 +189,8 @@ public static class GroupEndpoints
         Guid groupId, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, HttpContext http, CancellationToken ct)
     {
         if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
-        if (!await IsMemberAsync(db, groupId, userId, ct)) return Results.NotFound();
+        if (await GetRoleAsync(db, groupId, userId, ct) is not { } role) return Results.NotFound();
+        if (!GroupRules.CanManage(role)) return Forbidden();
 
         if (await db.GroupMembers.CountAsync(m => m.GroupId == groupId, ct) >= GroupRules.MaxMembers)
             return Problem(StatusCodes.Status409Conflict, "group_full", $"The group already has {GroupRules.MaxMembers} people.");
@@ -156,8 +241,8 @@ public static class GroupEndpoints
                 return Results.Ok(await LoadGroupAsync(db, invite.GroupId, userId, ct));
             case "expired" or "used":
                 return Problem(StatusCodes.Status410Gone, "invite_invalid", "This invite has expired or was already used.");
-            case "inAnotherGroup":
-                return Problem(StatusCodes.Status409Conflict, "already_in_group", "You are already in another group.");
+            case "tooManyGroups":
+                return Problem(StatusCodes.Status409Conflict, "too_many_groups", $"You can be in at most {GroupRules.MaxGroupsPerUser} groups.");
             case "full":
                 return Problem(StatusCodes.Status409Conflict, "group_full", "This group is full.");
         }
@@ -212,28 +297,29 @@ public static class GroupEndpoints
             .SingleOrDefaultAsync(ct);
         if (invite is null) return null;
 
-        var inAnotherGroup = !invite.IsMember && await db.GroupMembers.AnyAsync(m => m.UserId == userId, ct);
+        var tooManyGroups = !invite.IsMember
+                            && await db.GroupMembers.CountAsync(m => m.UserId == userId, ct) >= GroupRules.MaxGroupsPerUser;
 
         // Order matters: "already a member" wins over "already used" (the invitee reopening the link).
         var status =
             invite.IsMember ? "alreadyMember" :
             invite.UsedAt is not null ? "used" :
             invite.ExpiresAt <= now ? "expired" :
-            inAnotherGroup ? "inAnotherGroup" :
+            tooManyGroups ? "tooManyGroups" :
             invite.MemberCount >= GroupRules.MaxMembers ? "full" :
             "valid";
 
         return new InviteLookup(invite.Id, invite.GroupId, invite.GroupName, invite.InvitedBy, invite.ExpiresAt, status);
     }
 
-    // ---------------- Sharing ----------------
+    // ---------------- Sharing (per group) ----------------
 
-    /// <summary>My Google calendars + how each one is shared in this group.</summary>
+    /// <summary>My Google calendars + how each one is shared in THIS group (each group has its own choices).</summary>
     private static async Task<IResult> GetSharingAsync(
         Guid groupId, ClaimsPrincipal principal, AppDbContext db, AgendaService agenda, CancellationToken ct)
     {
         if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
-        if (!await IsMemberAsync(db, groupId, userId, ct)) return Results.NotFound();
+        if (await GetRoleAsync(db, groupId, userId, ct) is null) return Results.NotFound();
 
         var connection = await db.GoogleConnections.AsNoTracking().SingleOrDefaultAsync(c => c.UserId == userId, ct);
         var sources = await agenda.GetSourcesAsync(userId, connection?.HasScope(GoogleScopes.TasksReadonly) == true, ct);
@@ -261,7 +347,7 @@ public static class GroupEndpoints
         Guid groupId, UpdateSharingRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken ct)
     {
         if (principal.GetUserId() is not { } userId) return Results.Unauthorized();
-        if (!await IsMemberAsync(db, groupId, userId, ct)) return Results.NotFound();
+        if (await GetRoleAsync(db, groupId, userId, ct) is null) return Results.NotFound();
 
         var choices = request.Sources ?? [];
         if (choices.Count > GroupRules.MaxSharedSources)
@@ -318,12 +404,34 @@ public static class GroupEndpoints
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
         // 404 (not 403) for non-members: doesn't even confirm the group exists.
-        if (!await IsMemberAsync(db, groupId, userId, ct)) return Results.NotFound();
+        if (await GetRoleAsync(db, groupId, userId, ct) is null) return Results.NotFound();
 
         return Results.Ok(await agenda.GetGroupAgendaAsync(groupId, userId, from, to, ct));
     }
 
     // ---------------- Helpers ----------------
+
+    /// <summary>
+    /// The caller's role in the group, or null if they aren't a member. Non-members always get 404
+    /// (it doesn't even confirm the group exists); members without permission get 403.
+    /// </summary>
+    private static Task<GroupRole?> GetRoleAsync(AppDbContext db, Guid groupId, Guid userId, CancellationToken ct) =>
+        db.GroupMembers
+            .Where(m => m.GroupId == groupId && m.UserId == userId)
+            .Select(m => (GroupRole?)m.Role)
+            .FirstOrDefaultAsync(ct);
+
+    private static string? ValidateName(string? name)
+    {
+        var trimmed = name?.Trim();
+        return string.IsNullOrEmpty(trimmed) || trimmed.Length > GroupRules.MaxNameLength ? null : trimmed;
+    }
+
+    private static IResult InvalidName() =>
+        Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["name"] = [$"Name must be 1 to {GroupRules.MaxNameLength} characters."],
+        });
 
     /// <summary>
     /// Runs <paramref name="work"/> in a transaction inside EF's execution strategy.
@@ -340,9 +448,6 @@ public static class GroupEndpoints
             await tx.CommitAsync(ct);
             return result;
         });
-
-    private static Task<bool> IsMemberAsync(AppDbContext db, Guid groupId, Guid userId, CancellationToken ct) =>
-        db.GroupMembers.AnyAsync(m => m.GroupId == groupId && m.UserId == userId, ct);
 
     private static async Task<GroupDto> LoadGroupAsync(AppDbContext db, Guid groupId, Guid viewerId, CancellationToken ct)
     {
@@ -369,23 +474,24 @@ public static class GroupEndpoints
             })
             .SingleAsync(ct);
 
-        return new GroupDto(
-            group.Id,
-            group.Name,
-            group.Members.Select(m => new MemberDto(
-                m.UserId,
-                m.Name,
-                m.AvatarUrl,
-                m.Color,
-                m.Role,
-                IsMe: m.UserId == viewerId,
-                NeedsReconnect: m.Connection is null
-                                || m.Connection.Status != GoogleConnectionStatus.Ok
-                                || !m.Connection.HasScope(GoogleScopes.CalendarReadonly),
-                SharingConfigured: m.SharingConfiguredAt is not null,
-                m.SharedSources)).ToList(),
-            GroupRules.MaxMembers);
+        var members = group.Members.Select(m => new MemberDto(
+            m.UserId,
+            m.Name,
+            m.AvatarUrl,
+            m.Color,
+            m.Role,
+            IsMe: m.UserId == viewerId,
+            NeedsReconnect: m.Connection is null
+                            || m.Connection.Status != GoogleConnectionStatus.Ok
+                            || !m.Connection.HasScope(GoogleScopes.CalendarReadonly),
+            SharingConfigured: m.SharingConfiguredAt is not null,
+            m.SharedSources)).ToList();
+
+        return new GroupDto(group.Id, group.Name, members.Single(m => m.IsMe).Role, members, GroupRules.MaxMembers);
     }
+
+    private static IResult Forbidden() =>
+        Problem(StatusCodes.Status403Forbidden, "forbidden", "Your role in this group doesn't allow this action.");
 
     private static IResult Problem(int status, string code, string title) =>
         Results.Problem(statusCode: status, title: title, extensions: new Dictionary<string, object?> { ["code"] = code });

@@ -136,8 +136,7 @@ namespace Agenda.Api.Data.Migrations
 
                     b.HasKey("GroupId", "UserId");
 
-                    b.HasIndex("UserId")
-                        .IsUnique();
+                    b.HasIndex("UserId");
 
                     b.ToTable("GroupMembers");
                 });

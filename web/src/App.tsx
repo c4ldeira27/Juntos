@@ -5,6 +5,7 @@ import { AgendaScreen } from './components/AgendaScreen'
 import { ConnectScreen, FullScreenMessage, LoginScreen } from './components/AuthScreens'
 import { InviteScreen } from './components/InviteScreen'
 import { api, inviteTokenFromPath, isUnauthorized, type Me } from './lib/api'
+import { useSelectedGroup } from './lib/hooks'
 
 /**
  * /api/me decides which screen to show:
@@ -39,12 +40,13 @@ export default function App() {
 
 function Home({ me }: { me: Me }) {
   const { t } = useTranslation()
-  // Refetches when the tab regains focus: if the other person accepted the invite, they show up without F5.
-  const group = useQuery({ queryKey: ['group'], queryFn: api.currentGroup })
+  // Refetches when the tab regains focus: if someone accepted an invite, the member count updates without F5.
+  const groups = useQuery({ queryKey: ['groups'], queryFn: api.groups })
+  const { selected, select } = useSelectedGroup(groups.data)
 
-  if (group.isPending) return <FullScreenMessage>{t('common.loading')}</FullScreenMessage>
-  if (group.isError) return <ErrorScreen onRetry={() => group.refetch()} />
-  return <AgendaScreen me={me} group={group.data} />
+  if (groups.isPending) return <FullScreenMessage>{t('common.loading')}</FullScreenMessage>
+  if (groups.isError || selected === null) return <ErrorScreen onRetry={() => groups.refetch()} />
+  return <AgendaScreen me={me} groups={groups.data} selected={selected} onSelect={select} />
 }
 
 function ErrorScreen({ onRetry }: { onRetry: () => void }) {

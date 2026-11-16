@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api, ApiError } from '../lib/api'
 import { APP_NAME } from '../lib/config'
+import { rememberSelectedGroup } from '../lib/hooks'
 import { Shell } from './AuthScreens'
 import { buttonPrimary, buttonSecondary } from './ui'
 
@@ -11,8 +12,11 @@ export function InviteScreen({ token, onDone }: { token: string; onDone: () => v
   const preview = useQuery({ queryKey: ['invite-preview', token], queryFn: () => api.invitePreview(token) })
   const accept = useMutation({
     mutationFn: () => api.acceptInvite(token),
-    onSuccess: (group) => {
-      queryClient.setQueryData(['group'], group)
+    onSuccess: async (group) => {
+      // Opens the group just joined (the person may already be in other groups).
+      queryClient.setQueryData(['group', group.id], group)
+      rememberSelectedGroup(group.id)
+      await queryClient.invalidateQueries({ queryKey: ['groups'] })
       onDone()
     },
   })

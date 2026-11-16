@@ -125,15 +125,35 @@ docker build -t agenda:local .
 | GET | `/api/me` | Signed-in user + Google connection status |
 | GET | `/api/me/sources` | The account's calendars and task lists |
 | GET | `/api/me/agenda?from=&to=&source=` | Normalized items in the range (`source` repeated: `cal:{id}`, `tasks:{id}`) |
-| GET | `/api/groups/current` | The user's group (204 if they're not in one) |
-| POST | `/api/groups` | Creates a group (MVP rule: 1 group per person) |
-| POST | `/api/groups/{id}/invites` | Generates an invite link (single use, 48h) |
-| DELETE | `/api/groups/{id}/members/me` | Leaves the group (owner leaves → oldest member takes over; last one leaves → group deleted) |
-| GET/PUT | `/api/groups/{id}/sharing` | My calendars and how each one shows in the group (Details / Busy only / Hidden) |
+| GET | `/api/groups` | The user's groups, for the group switcher (empty = personal agenda only) |
+| POST | `/api/groups` | Creates a group; the creator is its owner (up to 10 groups per person) |
+| GET / PATCH / DELETE | `/api/groups/{id}` | Group details · rename (owner, admin) · delete (owner) |
+| POST | `/api/groups/{id}/invites` | Generates an invite link (single use, 48h; owner, admin) |
+| DELETE | `/api/groups/{id}/members/me` | Leaves the group (owner leaves → longest-standing admin, else member, takes over; last one leaves → group deleted) |
+| DELETE | `/api/groups/{id}/members/{userId}` | Removes someone (owner: anyone else; admin: regular members) |
+| PUT | `/api/groups/{id}/members/{userId}/role` | Makes someone `admin` or `member` (owner only) |
+| GET/PUT | `/api/groups/{id}/sharing` | My calendars and how each one shows in **this** group (Details / Busy only / Hidden) |
 | GET | `/api/groups/{id}/agenda?from=&to=` | Unified agenda, read with each member's token and filtered by each one's privacy choices |
 | GET | `/api/invites/{token}` | Invite preview |
 | POST | `/api/invites/{token}/accept` | Accepts the invite (idempotent) |
 | GET | `/health` | Health check |
+
+### Groups and roles
+
+A person can be in up to 10 groups and picks which one the calendar shows (or "My calendar", their own
+calendars only). What each person shares is chosen **per group**. Non-members get `404` on every group route;
+members without permission get `403` with `code: "forbidden"`.
+
+| Action | Owner | Admin | Member |
+|---|---|---|---|
+| Rename, invite | ✅ | ✅ | ❌ |
+| Remove someone | anyone else | regular members | ❌ |
+| Make / unmake admin | ✅ | ❌ | ❌ |
+| Delete the group | ✅ | ❌ | ❌ |
+| Leave, choose what to share | ✅ | ✅ | ✅ |
+
+The rules live in `GroupRules` (back end, unit-tested) and are mirrored in `web/src/lib/permissions.ts`
+only to decide which buttons to show.
 
 The API returns no UI text: errors carry a stable `code` (e.g. `google_reconnect_required`)
 and untitled items come with `title: null`, so the front end shows them in the user's language.
