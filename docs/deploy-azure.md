@@ -225,6 +225,9 @@ Common problems:
 
 ## Updating the app
 
+Since M5.2 this is automatic: merging to `main` runs the **Deploy to Azure** job in `.github/workflows/ci.yml`
+(see the CI/CD section of the README). The manual commands below are kept as a fallback:
+
 ```powershell
 $IMAGE = "ghcr.io/c4ldeira27/juntos:v2"
 docker build -t $IMAGE .

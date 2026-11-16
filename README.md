@@ -71,9 +71,27 @@ Prerequisites: .NET SDK 10, Node 24, Docker Desktop.
 
 6. Open <http://localhost:5173>.
 
+## CI/CD
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and on pushes to `main`:
+
+| Job | When | What |
+|---|---|---|
+| Back end (build + tests) | PRs and `main` | `dotnet build` + `dotnet test` (integration tests use Testcontainers) |
+| Front end (lint + build) | PRs and `main` | `npm ci`, lint, type-check + Vite build |
+| Docker image builds | PRs and `main` | builds the production image (no push) |
+| Deploy to Azure | `main` only, after the three jobs pass | pushes `ghcr.io/c4ldeira27/juntos:<commit sha>`, updates the Container App, waits for the new revision and smoke-tests `/health` |
+
+- `main` is protected by a ruleset: changes only through PRs, with the three checks green and the branch up to date.
+- The deploy job runs in the `production` GitHub environment (only `main`, manual approval) and signs in to Azure with
+  **OIDC**: a federated credential on the `id-juntos-deploy` managed identity trusts tokens from this repository's
+  `production` environment, so there is no Azure secret stored in GitHub. That identity only has
+  *Container Apps Contributor* on the resource group.
+- The image is pushed with the run's temporary `GITHUB_TOKEN` (no personal token).
+
 ## Deploying
 
-See [docs/deploy-azure.md](docs/deploy-azure.md): Azure Container Apps + Azure SQL (free offer) + Key Vault,
+The first deploy was done by hand, step by step: see [docs/deploy-azure.md](docs/deploy-azure.md): Azure Container Apps + Azure SQL (free offer) + Key Vault,
 with a managed identity and no passwords. Production settings (environment variables):
 
 | Variable | Purpose |
